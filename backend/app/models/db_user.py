@@ -3,8 +3,7 @@
 @Author: GeChao
 @File: db_user.py
 '''
-from datetime import datetime
-from sqlalchemy import Column, Integer, String, DateTime
+from sqlalchemy import Column, Integer, String, DateTime, func
 from sqlalchemy.orm import relationship
 from app.database import Base
 
@@ -16,9 +15,9 @@ class User(Base):
     username = Column(String(100), unique=True, index=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
     role = Column(String(20), default="user", nullable=False)
-    create_time = Column(DateTime, server_default=datetime.now(), nullable=False)
+    create_time = Column(DateTime, server_default=func.now(), nullable=False)
     create_user = Column(String(128), nullable=False, default="system")
-    update_time = Column(DateTime, server_default=datetime.now(), onupdate=datetime.now(), nullable=False)
+    update_time = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
     update_user = Column(String(128), nullable=False, default="system")
 
     sessions = relationship("ChatSession", back_populates="user", cascade="all, delete-orphan")

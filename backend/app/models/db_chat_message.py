@@ -3,8 +3,7 @@
 @Author: GeChao
 @File: db_chat_message.py
 '''
-from datetime import datetime
-from sqlalchemy import Column, Integer, String, Text, DateTime, JSON, ForeignKey
+from sqlalchemy import Column, Integer, String, Text, DateTime, JSON, ForeignKey, func
 from sqlalchemy.orm import relationship
 from app.database import Base
 
@@ -17,6 +16,6 @@ class ChatMessage(Base):
     message_type = Column(String(20), nullable=False)
     content = Column(Text, nullable=False)
     rag_trace = Column(JSON, nullable=True)
-    create_time = Column(DateTime, server_default=datetime.now(), nullable=False)
+    create_time = Column(DateTime, server_default=func.now(), nullable=False)
 
     session = relationship("ChatSession", back_populates="messages")
