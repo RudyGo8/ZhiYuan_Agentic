@@ -20,9 +20,18 @@ class MilvusService:
             self.client = MilvusClient(uri=self.uri)
         return self.client
 
-    def init_collection(self, dense_dim: int = 1536):
+    def init_collection(self, dense_dim: int = 1536, force_recreate: bool = True):
         client = self._get_client()
-        if not client.has_collection(self.collection_name):
+        
+        # 如果 force_recreate 或 collection 不存在，则创建
+        if force_recreate or not client.has_collection(self.collection_name):
+            # 如果存在则先删除
+            if client.has_collection(self.collection_name):
+                try:
+                    client.drop_collection(self.collection_name)
+                except:
+                    pass
+            
             schema = client.create_schema(auto_id=True, enable_dynamic_field=True)
             schema.add_field("id", DataType.INT64, is_primary=True, auto_id=True)
             schema.add_field("dense_embedding", DataType.FLOAT_VECTOR, dim=dense_dim)
@@ -108,12 +117,20 @@ class MilvusService:
         formatted = []
         for hits in results:
             for hit in hits:
+                entity = hit.get("entity", {}) if isinstance(hit, dict) else hit
+                if hasattr(hit, 'entity'):
+                    entity = hit.entity
+                text = entity.get("text", "") if isinstance(entity, dict) else ""
+                filename = entity.get("filename", "") if isinstance(entity, dict) else ""
+                file_type = entity.get("file_type", "") if isinstance(entity, dict) else ""
+                chunk_id = entity.get("chunk_id", "") if isinstance(entity, dict) else ""
+                score = hit.get("distance", 0.0) if isinstance(hit, dict) else getattr(hit, 'distance', 0.0)
                 formatted.append({
-                    "text": hit.get("entity", {}).get("text", ""),
-                    "filename": hit.get("entity", {}).get("filename", ""),
-                    "file_type": hit.get("entity", {}).get("file_type", ""),
-                    "chunk_id": hit.get("entity", {}).get("chunk_id", ""),
-                    "score": hit.get("distance", 0.0)
+                    "text": text,
+                    "filename": filename,
+                    "file_type": file_type,
+                    "chunk_id": chunk_id,
+                    "score": score
                 })
         return formatted
 

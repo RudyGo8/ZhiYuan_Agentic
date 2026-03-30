@@ -169,7 +169,14 @@ class ChatService:
         except Exception as e:
             response_content = f"抱歉，处理您的请求时发生错误: {str(e)}"
         
-        rag_trace = {"tool_used": bool(docs), "retrieved_docs": docs}
+        rag_trace = {
+            "tool_used": bool(docs),
+            "tool_name": "RAG",
+            "retrieved_chunks": docs,
+            "initial_retrieved_chunks": docs,
+            "retrieval_mode": "hybrid" if docs else "none",
+            "candidate_k": len(docs)
+        }
         
         ChatService.save_message(user_id, session_id, "human", user_text)
         ChatService.save_message(user_id, session_id, "ai", response_content, rag_trace)

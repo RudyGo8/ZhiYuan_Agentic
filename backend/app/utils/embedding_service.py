@@ -29,13 +29,13 @@ class EmbeddingService:
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
         }
-        data = {
-            "model": self.embedder,
-            "input": texts,
-            "encoding_format": "float"
-        }
         try:
-            response = requests.post(f"{self.base_url}/embeddings", headers=headers, json=data, timeout=30)
+            url = f"{self.base_url}/embeddings"
+            data = {
+                "model": self.embedder,
+                "input": texts
+            }
+            response = requests.post(url, headers=headers, json=data, timeout=60)
             response.raise_for_status()
             result = response.json()
             return [item["embedding"] for item in result["data"]]

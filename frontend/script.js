@@ -28,7 +28,8 @@ createApp({
                 role: 'user',
                 admin_code: ''
             },
-            authLoading: false
+            authLoading: false,
+            isDarkMode: localStorage.getItem('zhiyuan-theme') === 'dark'
         };
     },
     computed: {
@@ -41,6 +42,7 @@ createApp({
     },
     async mounted() {
         this.configureMarked();
+        this.applyTheme();
         if (this.token) {
             try {
                 await this.fetchMe();
@@ -50,6 +52,16 @@ createApp({
         }
     },
     methods: {
+        applyTheme() {
+            document.body.classList.toggle('theme-dark', this.isDarkMode);
+        },
+
+        toggleTheme() {
+            this.isDarkMode = !this.isDarkMode;
+            localStorage.setItem('zhiyuan-theme', this.isDarkMode ? 'dark' : 'light');
+            this.applyTheme();
+        },
+
         configureMarked() {
             marked.setOptions({
                 highlight: function(code, lang) {
@@ -257,7 +269,8 @@ createApp({
                                     this.messages[botMsgIdx].ragSteps.push(data.step);
                                 } else if (data.type === 'error') {
                                     this.messages[botMsgIdx].isThinking = false;
-                                    this.messages[botMsgIdx].text += `\n[Error: ${data.content}]`;
+                                    const errorMsg = data.error || data.content || '未知错误';
+                                    this.messages[botMsgIdx].text += `\n[Error: ${errorMsg}]`;
                                 }
                             } catch (e) {
                                 console.warn('SSE parse error:', e);
@@ -277,7 +290,7 @@ createApp({
                     }
                 } else {
                     this.messages[botMsgIdx].isThinking = false;
-                    this.messages[botMsgIdx].text = `喵呜... 出了点问题：${error.message}`;
+                    this.messages[botMsgIdx].text = `Sorry... 出了点问题：${error.message}`;
                 }
             } finally {
                 this.isLoading = false;
@@ -313,7 +326,7 @@ createApp({
         },
 
         handleClearChat() {
-            if (confirm('确定要清空当前对话吗？喵？')) {
+            if (confirm('确定要清空当前对话吗？')) {
                 this.messages = [];
             }
         },

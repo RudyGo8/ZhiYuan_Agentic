@@ -118,3 +118,17 @@
 {"time": "2026-03-30 19:32:52,541", "name": "app.config", "level": "INFO", "message": "Response: 404 http://127.0.0.1:8000/", "filename": "main.py", "funcName": "log_request", "lineno": 36}
 {"time": "2026-03-30 19:33:36,430", "name": "app.config", "level": "INFO", "message": "Request: GET http://127.0.0.1:8000/", "filename": "main.py", "funcName": "log_request", "lineno": 34}
 {"time": "2026-03-30 19:33:36,430", "name": "app.config", "level": "INFO", "message": "Response: 404 http://127.0.0.1:8000/", "filename": "main.py", "funcName": "log_request", "lineno": 36}
+{"time": "2026-03-30 19:38:21,849", "name": "app.config", "level": "INFO", "message": "Request: GET http://127.0.0.1:8000/", "filename": "main.py", "funcName": "log_request", "lineno": 34}
+{"time": "2026-03-30 19:38:21,849", "name": "app.config", "level": "INFO", "message": "Response: 404 http://127.0.0.1:8000/", "filename": "main.py", "funcName": "log_request", "lineno": 36}
+{"time": "2026-03-30 19:38:27,413", "name": "app.config", "level": "INFO", "message": "Request: GET http://127.0.0.1:8000/docs", "filename": "main.py", "funcName": "log_request", "lineno": 34}
+{"time": "2026-03-30 19:38:27,414", "name": "app.config", "level": "INFO", "message": "Response: 200 http://127.0.0.1:8000/docs", "filename": "main.py", "funcName": "log_request", "lineno": 36}
+{"time": "2026-03-30 19:38:27,600", "name": "app.config", "level": "INFO", "message": "Request: GET http://127.0.0.1:8000/openapi.json", "filename": "main.py", "funcName": "log_request", "lineno": 34}
+{"time": "2026-03-30 19:38:27,601", "name": "app.config", "level": "INFO", "message": "Response: 200 http://127.0.0.1:8000/openapi.json", "filename": "main.py", "funcName": "log_request", "lineno": 36}
+{"time": "2026-03-30 19:42:42,173", "name": "app.config", "level": "INFO", "message": "Request: GET http://127.0.0.1:8000/docs", "filename": "main.py", "funcName": "log_request", "lineno": 34}
+{"time": "2026-03-30 19:42:42,173", "name": "app.config", "level": "INFO", "message": "Response: 200 http://127.0.0.1:8000/docs", "filename": "main.py", "funcName": "log_request", "lineno": 36}
+{"time": "2026-03-30 19:42:42,404", "name": "app.config", "level": "INFO", "message": "Request: GET http://127.0.0.1:8000/openapi.json", "filename": "main.py", "funcName": "log_request", "lineno": 34}
+{"time": "2026-03-30 19:42:42,404", "name": "app.config", "level": "INFO", "message": "Response: 200 http://127.0.0.1:8000/openapi.json", "filename": "main.py", "funcName": "log_request", "lineno": 36}
+{"time": "2026-03-30 19:42:58,669", "name": "app.config", "level": "INFO", "message": "Request: GET http://127.0.0.1:8000/", "filename": "main.py", "funcName": "log_request", "lineno": 34}
+{"time": "2026-03-30 19:42:58,670", "name": "app.config", "level": "INFO", "message": "Response: 404 http://127.0.0.1:8000/", "filename": "main.py", "funcName": "log_request", "lineno": 36}
+{"time": "2026-03-30 19:47:46,261", "name": "app.config", "level": "INFO", "message": "Request: GET http://127.0.0.1:8000/docs", "filename": "main.py", "funcName": "log_request", "lineno": 34}
+{"time": "2026-03-30 19:47:46,261", "name": "app.config", "level": "INFO", "message": "Response: 200 http://127.0.0.1:8000/docs", "filename": "main.py", "funcName": "log_request", "lineno": 36}

@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from app.models.db_user import User
 from app.schemas.auth import DocumentListResponse, DocumentUploadResponse, DocumentDeleteResponse, DocumentInfo
 from app.utils.auth_utils import require_admin
-from app.services.rag_service import rag_service
+from app.utils.milvus_service import milvus_service
 
 router_r1 = APIRouter(
     prefix="/api/r1/documents",
@@ -23,8 +23,8 @@ UPLOAD_DIR = DATA_DIR / "documents"
 @router_r1.get("", response_model=DocumentListResponse)
 async def list_documents(_: User = Depends(require_admin)):
     try:
-        rag_service.init_milvus()
-        results = rag_service.milvus_service.query(output_fields=["filename", "file_type"], limit=10000)
+        milvus_service.init_collection()
+        results = milvus_service.query(output_fields=["filename", "file_type"], limit=10000)
         
         file_stats = {}
         for item in results:
@@ -59,7 +59,8 @@ async def upload_document(file: UploadFile = File(...), _: User = Depends(requir
             content = await file.read()
             f.write(content)
         
-        chunk_count = rag_service.upload_document(str(file_path), filename)
+        from app.milvus_writer import milvus_writer
+        chunk_count = milvus_writer.write_documents(str(file_path), filename)
         
         return DocumentUploadResponse(
             filename=filename,
@@ -73,9 +74,9 @@ async def upload_document(file: UploadFile = File(...), _: User = Depends(requir
 @router_r1.delete("/{filename}", response_model=DocumentDeleteResponse)
 async def delete_document(filename: str, _: User = Depends(require_admin)):
     try:
-        rag_service.init_milvus()
+        milvus_service.init_collection()
         delete_expr = f'filename == "{filename}"'
-        result = rag_service.milvus_service.delete(delete_expr)
+        result = milvus_service.delete(delete_expr)
         
         return DocumentDeleteResponse(
             filename=filename,

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>喵喵智能助手</title>
+    <title>知源助手</title>
     <link rel="stylesheet" href="style.css">
     <!-- Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700&family=Zcool+KuaiLe&display=swap" rel="stylesheet">
@@ -23,8 +23,8 @@
         <!-- Sidebar -->
         <aside class="sidebar">
             <div class="sidebar-header">
-                <div class="logo-icon">🐱</div>
-                <h2>喵喵助手</h2>
+                <div class="logo-icon">🤖</div>
+                
             </div>
             <nav class="sidebar-nav">
                 <button @click="handleNewChat" :class="['nav-btn', {active: activeNav === 'newChat'}]">
@@ -39,7 +39,7 @@
             </nav>
             <div class="sidebar-footer">
                 <button @click="handleClearChat" class="danger-btn">
-                    <i class="fas fa-trash-alt"></i> 清空当前对话
+                    <i class="fas fa-trash-alt"></i> 清空对话
                 </button>
                 <div v-if="isAuthenticated" class="user-badge">
                     <span>{{ currentUser.username }}</span>
@@ -54,7 +54,7 @@
         <!-- Main Chat Area -->
         <main class="main-content">
             <div v-if="!isAuthenticated" class="auth-panel">
-                <h2>{{ authMode === 'login' ? '登录 SuperMew' : '注册 SuperMew' }}</h2>
+                <h2>{{ authMode === 'login' ? '登录知源助手' : '注册知源助手' }}</h2>
                 <p>登录后即可使用聊天和历史记录；管理员可管理文档知识库。</p>
                 <div class="auth-form">
                     <input v-model="authForm.username" type="text" placeholder="用户名" />
@@ -193,18 +193,25 @@
                 <header class="chat-header">
                     <div class="header-info">
                         <div class="status-dot"></div>
-                        <span>喵喵在线中...</span>
+                        <span>知源在线中...</span>
                     </div>
                     <div class="header-actions">
+                        <button
+                            class="icon-btn theme-toggle-btn"
+                            :title="isDarkMode ? '切换到日间模式' : '切换到夜间模式'"
+                            @click="toggleTheme"
+                        >
+                            <i :class="isDarkMode ? 'fas fa-sun' : 'fas fa-moon'"></i>
+                        </button>
                         <button class="icon-btn" title="更多"><i class="fas fa-ellipsis-h"></i></button>
                     </div>
                 </header>
 
                 <div class="chat-container" ref="chatContainer">
                 <div v-if="messages.length === 0" class="welcome-screen">
-                    <div class="big-avatar">🐱</div>
-                    <h3>你好呀！我是喵喵</h3>
-                    <p>我可以帮你写代码、回答问题，或者只是陪你聊天~ 喵！</p>
+                    <div class="big-avatar">🤖</div>
+                    <h3>你好，我是知源助手</h3>
+                    <p>我可以基于知识库回答问题、梳理资料、辅助分析，并展示检索依据。</p>
                 </div>
                 
                 <!-- Messages -->
@@ -368,7 +375,7 @@
                         @compositionstart="handleCompositionStart"
                         @compositionend="handleCompositionEnd"
                         @input="autoResize"
-                        placeholder="和喵喵说点什么吧... (Shift+Enter 换行)" 
+                        placeholder="和知源说点什么吧... (Shift+Enter 换行)" 
                         rows="1"
                         ref="textarea"
                     ></textarea>
@@ -379,7 +386,7 @@
                         <i class="fas fa-paper-plane"></i>
                     </button>
                 </div>
-                <div class="footer-text">AI 生成的内容可能包含错误，请仔细甄别。</div>
+                <div class="footer-text">知源助手会尽量基于知识库生成回答，AI 生成内容仍可能存在偏差，请仔细甄别。</div>
             </div>
             </div>
             <!-- End of Chat Area -->

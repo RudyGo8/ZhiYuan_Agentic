@@ -29,7 +29,12 @@ MILVUS_COLLECTION = os.getenv("MILVUS_COLLECTION", "rag_embeddings")
 ARK_API_KEY = os.getenv("ARK_API_KEY", "")
 MODEL = os.getenv("MODEL", "qwen-plus")
 BASE_URL = os.getenv("BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
-EMBEDDER = os.getenv("EMBEDDER", "qwen-plus")
+EMBEDDER = os.getenv("EMBEDDER", "text-embedding-v2")
+GRADE_MODEL = os.getenv("GRADE_MODEL", "qwen-plus")
+
+AUTO_MERGE_ENABLED = os.getenv("AUTO_MERGE_ENABLED", "true")
+AUTO_MERGE_THRESHOLD = os.getenv("AUTO_MERGE_THRESHOLD", "2")
+LEAF_RETRIEVE_LEVEL = os.getenv("LEAF_RETRIEVE_LEVEL", "3")
 
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "change-this-secret")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
@@ -37,7 +42,7 @@ JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "1440"))
 ADMIN_INVITE_CODE = os.getenv("ADMIN_INVITE_CODE", "")
 PASSWORD_PBKDF2_ROUNDS = int(os.getenv("PASSWORD_PBKDF2_ROUNDS", "310000"))
 
-LOG_PATH = os.getenv("LOG_PATH", "./logs")
+LOG_PATH = os.getenv("LOG_PATH", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs"))
 
 
 def json_formatter(record):
@@ -63,6 +68,11 @@ def setup_logging(log_file_path=None):
     if log_file_path is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         log_file_path = "%s/rag_agent_%s.log" % (LOG_PATH, timestamp)
+
+    # 确保日志目录存在
+    log_dir = os.path.dirname(log_file_path)
+    if log_dir and not os.path.exists(log_dir):
+        os.makedirs(log_dir, exist_ok=True)
 
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
