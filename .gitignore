@@ -1,3 +1,31 @@
-backend/volumes/...
+# Local environment
+.env
+*.env
 backend/.env
+
+# Python cache and build artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+
+# Virtual environments
+.venv/
+venv/
+backend/venv/
+
+# Logs and runtime files
+*.log
 *.sock
+backend/logs/
+backend/app/logs/
+backend/app/test_api/logs/
+
+# IDE files
+.idea/
+backend/.idea/
+
+# Service state and local databases
+backend/volumes/

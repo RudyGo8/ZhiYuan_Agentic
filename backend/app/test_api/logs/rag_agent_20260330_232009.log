@@ -1,2 +1,0 @@
-{"time": "2026-03-30 23:20:15,139", "name": "httpx", "level": "INFO", "message": "HTTP Request: POST https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions \"HTTP/1.1 200 OK\"", "filename": "_client.py", "funcName": "_send_single_request", "lineno": 1025}
-{"time": "2026-03-30 23:20:15,736", "name": "httpx", "level": "INFO", "message": "HTTP Request: POST https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions \"HTTP/1.1 200 OK\"", "filename": "_client.py", "funcName": "_send_single_request", "lineno": 1025}

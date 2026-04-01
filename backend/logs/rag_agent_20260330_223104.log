@@ -1,2 +1,0 @@
-{"time": "2026-03-30 22:31:10,644", "name": "numexpr.utils", "level": "INFO", "message": "Note: NumExpr detected 24 cores but \"NUMEXPR_MAX_THREADS\" not set, so enforcing safe limit of 8.", "filename": "utils.py", "funcName": "_init_num_threads", "lineno": 148}
-{"time": "2026-03-30 22:31:10,645", "name": "numexpr.utils", "level": "INFO", "message": "NumExpr defaulting to 8 threads.", "filename": "utils.py", "funcName": "_init_num_threads", "lineno": 160}
