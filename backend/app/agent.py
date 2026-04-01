@@ -1,3 +1,16 @@
+"""
+RAG Agent 核心模块
+================================================================================
+整体流程:
+    用户提问 → [1]加载历史对话 → [2]Agent决策 → [3]调用search_knowledge_base工具 
+         → [4]RAG检索 → [5]LLM生成答案 → [6]保存对话 → 返回响应
+    
+核心组件:
+    - ConversationStorage: 对话存储 (MySQL + Redis)
+    - LangChain Agent: 智能决策 + 工具调用
+    - search_knowledge_base: RAG检索工具
+================================================================================
+"""
 from dotenv import load_dotenv
 import os
 import json
@@ -16,7 +29,29 @@ BASE_URL = os.getenv("BASE_URL")
 
 
 class ConversationStorage:
-    """对话存储（PostgreSQL + Redis）。"""
+    """
+    ================================================================================
+    [组件1] 对话存储 - ConversationStorage
+    ================================================================================
+    功能: 管理用户对话历史的持久化和缓存
+    
+    存储架构:
+        MySQL (持久化):
+            - db_user: 用户信息
+            - db_chat_session: 会话信息 (user_id, session_id, metadata_json)
+            - db_chat_message: 消息记录 (session_ref_id, message_type, content, rag_trace)
+        
+        Redis (缓存加速):
+            - chat_messages:{user_id}:{session_id}: 消息缓存
+            - chat_sessions:{user_id}: 会话列表缓存
+    
+    核心方法:
+        - save(): 保存对话 (写入MySQL + Redis缓存)
+        - load(): 加载对话 (优先Redis缓存，未命中则查MySQL)
+        - list_sessions(): 获取用户所有会话
+        - delete_session(): 删除会话
+    ================================================================================
+    """
 
     @staticmethod
     def _messages_cache_key(user_id: str, session_id: str) -> str:
@@ -218,6 +253,38 @@ class ConversationStorage:
 
 
 def create_agent_instance():
+    """
+    ================================================================================
+    [组件2] Agent 实例创建
+    ================================================================================
+    作用: 创建 LangChain Agent 实例，绑定模型和工具
+    
+    Agent 决策流程:
+        ┌─────────────────────────────────────────────────────────────┐
+        │  用户问题                                                    │
+        │      │                                                        │
+        │      ▼                                                        │
+        │  ┌──────────────────┐                                         │
+        │  │ 判断问题类型      │── 简单问候/寒暄 → 直接回答              │
+        │  └────────┬─────────┘                                         │
+        │           │ 需要知识                                           │
+        │           ▼                                                   │
+        │  ┌─────────────────────────────────────┐                     │
+        │  │ 调用 search_knowledge_base 工具     │                     │
+        │  │ (触发 RAG Pipeline 检索)            │                     │
+        │  └─────────────┬───────────────────────┘                     │
+        │                │                                              │
+        │                ▼                                              │
+        │  ┌─────────────────────────────────────┐                     │
+        │  │ 使用检索结果 + LLM 生成答案          │                     │
+        │  └─────────────────────────────────────┘                     │
+        └─────────────────────────────────────────────────────────────┘
+    
+    工具列表:
+        - get_current_weather: 天气查询工具
+        - search_knowledge_base: RAG检索工具 (核心)
+    ================================================================================
+    """
     model = init_chat_model(
         model=MODEL,
         model_provider="openai",
@@ -231,7 +298,7 @@ def create_agent_instance():
         model=model,
         tools=[get_current_weather, search_knowledge_base],
         system_prompt=(
-            "You are a helpful assistant. "
+            "You are a helpful AI assistant named 知源 Assistant.You were developed by Rudy."
             "IMPORTANT: You must ALWAYS use tools to answer questions. "
             "For ANY question that might need factual information, documents, or knowledge base content, "
             "you MUST call search_knowledge_base tool first. "
@@ -266,12 +333,23 @@ def summarize_old_messages(model, messages: list) -> str:
 
 
 def chat_with_agent(user_text: str, user_id: str = "default_user", session_id: str = "default_session"):
-    """使用 Agent 处理用户消息并返回响应"""
+
+    # ============================================================================
+    # Step 1: 加载历史对话
+    # 优先从 Redis 缓存读取，未命中则从 MySQL 查询
+    # ============================================================================
     messages = storage.load(user_id, session_id)
 
+    # ============================================================================
+    # Step 2: 重置上下文 (清除上次的 RAG 结果和工具调用计数)
+    # ============================================================================
     get_last_rag_context(clear=True)
     reset_tool_call_guards()
     
+    # ============================================================================
+    # Step 2-1: 长对话压缩 (消息数 > 50)
+    # 使用 LLM 总结旧对话，保留最近 40 条 + 摘要
+    # ============================================================================
     if len(messages) > 50:
         summary = summarize_old_messages(model, messages[:40])
 
@@ -279,12 +357,24 @@ def chat_with_agent(user_text: str, user_id: str = "default_user", session_id: s
             SystemMessage(content=f"之前的对话摘要：\n{summary}")
         ] + messages[40:]
 
+    # ============================================================================
+    # Step 3: 添加用户消息到对话历史
+    # ============================================================================
     messages.append(HumanMessage(content=user_text))
+    
+    # ============================================================================
+    # Step 4: Agent 执行 (核心步骤!)
+    # Agent 会分析问题并判断是否需要调用工具
+    # 如果需要知识库 → 调用 search_knowledge_base → 触发 RAG Pipeline
+    # ============================================================================
     result = agent.invoke(
         {"messages": messages},
         config={"recursion_limit": 8},
     )
 
+    # ============================================================================
+    # Step 5: 提取 AI 响应内容
+    # ============================================================================
     response_content = ""
     if isinstance(result, dict):
         if "output" in result:
@@ -299,14 +389,24 @@ def chat_with_agent(user_text: str, user_id: str = "default_user", session_id: s
     else:
         response_content = str(result)
     
+    # 添加 AI 响应到消息列表
     messages.append(AIMessage(content=response_content))
 
+    # ============================================================================
+    # Step 6: 获取 RAG 执行信息 (rag_trace)
+    # ============================================================================
     rag_context = get_last_rag_context(clear=True)
     rag_trace = rag_context.get("rag_trace") if rag_context else None
 
+    # ============================================================================
+    # Step 7: 保存对话到数据库 (MySQL + Redis 缓存)
+    # ============================================================================
     extra_message_data = [None] * (len(messages) - 1) + [{"rag_trace": rag_trace}]
     storage.save(user_id, session_id, messages, extra_message_data=extra_message_data)
 
+    # ============================================================================
+    # Step 8: 返回结果
+    # ============================================================================
     return {
         "response": response_content,
         "rag_trace": rag_trace,

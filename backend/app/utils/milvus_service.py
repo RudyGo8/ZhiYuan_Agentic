@@ -20,12 +20,10 @@ class MilvusService:
             self.client = MilvusClient(uri=self.uri)
         return self.client
 
-    def init_collection(self, dense_dim: int = 1536, force_recreate: bool = True):
+    def init_collection(self, dense_dim: int = 1536, force_recreate: bool = False):
         client = self._get_client()
         
-        # 如果 force_recreate 或 collection 不存在，则创建
         if force_recreate or not client.has_collection(self.collection_name):
-            # 如果存在则先删除
             if client.has_collection(self.collection_name):
                 try:
                     client.drop_collection(self.collection_name)
@@ -48,6 +46,11 @@ class MilvusService:
             index_params.add_index(field_name="sparse_embedding", index_type="SPARSE_INVERTED_INDEX", metric_type="IP", params={"drop_ratio_build": 0.2})
 
             client.create_collection(collection_name=self.collection_name, schema=schema, index_params=index_params)
+        
+        try:
+            client.load_collection(self.collection_name)
+        except Exception:
+            pass
 
     def insert(self, data: list[dict]):
         return self._get_client().insert(self.collection_name, data)

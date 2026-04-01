@@ -112,6 +112,17 @@ createApp({
         },
 
         async handleAuthSubmit() {
+            /*
+             * ================================================================================
+             * [客户端] 认证流程 (登录/注册)
+             * ================================================================================
+             * Step 1: 验证输入
+             * Step 2: 构建请求 payload
+             * Step 3: 调用登录/注册 API
+             * Step 4: 保存 Token 到本地
+             * Step 5: 获取用户信息
+             * ================================================================================
+             */
             if (this.authLoading) return;
             const username = this.authForm.username.trim();
             const password = this.authForm.password.trim();
@@ -122,6 +133,7 @@ createApp({
 
             this.authLoading = true;
             try {
+                // ========== Step 2: 构建请求 payload ==========
                 const endpoint = this.authMode === 'login' ? '/auth/login' : '/auth/register';
                 const payload = {
                     username,
@@ -132,6 +144,7 @@ createApp({
                     payload.admin_code = this.authForm.admin_code || null;
                 }
 
+                // ========== Step 3: 调用登录/注册 API ==========
                 const response = await fetch(BASE_URL + endpoint, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -143,9 +156,12 @@ createApp({
                     throw new Error(data.detail || '认证失败');
                 }
 
+                // ========== Step 4: 保存 Token 到本地 ==========
                 this.token = data.access_token;
                 this.currentUser = { username: data.username, role: data.role };
                 localStorage.setItem('accessToken', this.token);
+                
+                // 清理表单
                 this.authForm.password = '';
                 this.authForm.admin_code = '';
                 this.messages = [];
@@ -191,6 +207,21 @@ createApp({
         },
 
         async handleSend() {
+            /*
+             * ================================================================================
+             * [客户端] 发送消息流程
+             * ================================================================================
+             * Step 1: 验证用户登录状态
+             * Step 2: 添加用户消息到界面
+             * Step 3: 创建 AI 消息占位符 (isThinking: true)
+             * Step 4: 调用 SSE 流式 API
+             * Step 5: 解析 SSE 数据流
+             * Step 6: 更新消息内容 / RAG trace / 思考步骤
+             * Step 7: 处理完成或错误
+             * ================================================================================
+             */
+
+            // ========== Step 1: 验证用户登录 ==========
             if (!this.isAuthenticated) {
                 alert('请先登录');
                 return;
@@ -199,6 +230,7 @@ createApp({
             const text = this.userInput.trim();
             if (!text || this.isLoading || this.isComposing) return;
 
+            // ========== Step 2: 添加用户消息到界面 ==========
             this.messages.push({
                 text: text,
                 isUser: true
@@ -210,19 +242,21 @@ createApp({
                 this.scrollToBottom();
             });
 
+            // ========== Step 3: 创建 AI 消息占位符 ==========
             this.isLoading = true;
             this.messages.push({
                 text: '',
                 isUser: false,
-                isThinking: true,
-                ragTrace: null,
-                ragSteps: []
+                isThinking: true,  // 显示思考中状态
+                ragTrace: null,     // RAG 执行元数据
+                ragSteps: []        // RAG 思考步骤 (流式)
             });
             const botMsgIdx = this.messages.length - 1;
 
             this.abortController = new AbortController();
 
             try {
+                // ========== Step 4: 调用 SSE 流式 API ==========
                 const response = await this.authFetch('/chat/stream', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -250,24 +284,31 @@ createApp({
                         const eventStr = buffer.slice(0, eventEndIndex);
                         buffer = buffer.slice(eventEndIndex + 2);
 
+                        // ========== Step 5: 解析 SSE 数据流 ==========
                         if (eventStr.startsWith('data: ')) {
                             const dataStr = eventStr.slice(6);
                             if (dataStr === '[DONE]') continue;
                             try {
                                 const data = JSON.parse(dataStr);
+                                
+                                // ========== Step 6: 更新消息内容 / RAG trace / 思考步骤 ==========
                                 if (data.type === 'content') {
+                                    // AI 回复内容 (流式)
                                     if (this.messages[botMsgIdx].isThinking) {
                                         this.messages[botMsgIdx].isThinking = false;
                                     }
                                     this.messages[botMsgIdx].text += data.content;
                                 } else if (data.type === 'trace') {
+                                    // RAG 执行元数据 (最终返回)
                                     this.messages[botMsgIdx].ragTrace = data.rag_trace;
                                 } else if (data.type === 'rag_step') {
+                                    // RAG 思考步骤 (流式显示)
                                     if (!this.messages[botMsgIdx].ragSteps) {
                                         this.messages[botMsgIdx].ragSteps = [];
                                     }
                                     this.messages[botMsgIdx].ragSteps.push(data.step);
                                 } else if (data.type === 'error') {
+                                    // 错误信息
                                     this.messages[botMsgIdx].isThinking = false;
                                     const errorMsg = data.error || data.content || '未知错误';
                                     this.messages[botMsgIdx].text += `\n[Error: ${errorMsg}]`;
@@ -280,8 +321,10 @@ createApp({
                     this.$nextTick(() => this.scrollToBottom());
                 }
 
+            // ========== Step 7: 处理完成或错误 ==========
             } catch (error) {
                 if (error.name === 'AbortError') {
+                    // 用户主动终止
                     this.messages[botMsgIdx].isThinking = false;
                     if (!this.messages[botMsgIdx].text) {
                         this.messages[botMsgIdx].text = '(已终止回答)';
@@ -289,6 +332,7 @@ createApp({
                         this.messages[botMsgIdx].text += '\n\n_(回答已被终止)_';
                     }
                 } else {
+                    // 请求错误
                     this.messages[botMsgIdx].isThinking = false;
                     this.messages[botMsgIdx].text = `Sorry... 出了点问题：${error.message}`;
                 }
@@ -336,7 +380,7 @@ createApp({
             this.activeNav = 'history';
             this.showHistorySidebar = true;
             try {
-                const response = await this.authFetch('/sessions');
+                const response = await this.authFetch('/chat/sessions');
                 if (!response.ok) {
                     throw new Error('Failed to load sessions');
                 }
@@ -353,7 +397,7 @@ createApp({
             this.activeNav = 'newChat';
 
             try {
-                const response = await this.authFetch(`/sessions/${encodeURIComponent(sessionId)}`);
+                const response = await this.authFetch(`/chat/sessions/${encodeURIComponent(sessionId)}`);
                 if (!response.ok) {
                     throw new Error('Failed to load session messages');
                 }
@@ -379,7 +423,7 @@ createApp({
             }
 
             try {
-                const response = await this.authFetch(`/sessions/${encodeURIComponent(sessionId)}`, {
+                const response = await this.authFetch(`/chat/sessions/${encodeURIComponent(sessionId)}`, {
                     method: 'DELETE'
                 });
 

@@ -12,8 +12,8 @@ import time
 import os
 
 BASE_URL = "http://localhost:8000"
-TEST_USER = "test_user"
-TEST_PASS = "test123456"
+TEST_USER = "test1"
+TEST_PASS = "123456"
 
 
 class APITester:
@@ -198,7 +198,7 @@ class APITester:
             model = init_chat_model(model=MODEL, model_provider="openai", api_key=ARK_API_KEY,
                                    base_url=BASE_URL, temperature=0)
             grader = model.with_structured_output(GradeDocuments)
-            result = grader.invoke([{"role": "user", "content": "Answer yes or no. Context: test. Question: test."}])
+            result = grader.invoke([{"role": "user", "content": "Answer yes or no. Context: test. Question: test. Return a JSON object with a single field 'binary_score' containing 'yes' or 'no'."}])
             print(f"Grade: {result.binary_score}")
             return True
         except Exception as e:
