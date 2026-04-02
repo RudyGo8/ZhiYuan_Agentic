@@ -168,6 +168,7 @@ def get_current_weather(location: str, extensions: Optional[str] = "base") -> st
 @tool("search_knowledge_base")
 def search_knowledge_base(query: str) -> str:
     # Main retrieval tool exposed to the agent.
+    """Search the RAG knowledge base and return formatted retrieved chunks."""
 
     global _KNOWLEDGE_TOOL_CALLS_THIS_TURN
 
