@@ -117,9 +117,7 @@ class RewriteStrategy(BaseModel):
     strategy: Literal["step_back", "hyde", "complex"]
 
 
-# ===============================================================================
 # RAG 状态定义
-# ===============================================================================
 class RAGState(TypedDict):
     """
     RAG Pipeline 状态定义
@@ -151,7 +149,6 @@ class RAGState(TypedDict):
 
 
 def _format_docs(docs: List[dict]) -> str:
-    """格式化文档列表为字符串"""
     if not docs:
         return ""
     chunks = []
@@ -207,13 +204,13 @@ def retrieve_initial(state: RAGState) -> RAGState:
     # ============================================================================
     query = state["question"]
     emit_rag_step("🔍", "正在检索知识库...", f"查询: {query[:50]}")
-    
+
     # 调用底层检索函数 (见 rag_utils.py)
     retrieved = retrieve_documents(query, top_k=5)
     results = retrieved.get("docs", [])
     retrieve_meta = retrieved.get("meta", {})
     context = _format_docs(results)
-    
+
     # ============================================================================
     # RAG Step 2: 三级分块检索 (Auto-merging)
     # ============================================================================
@@ -236,7 +233,7 @@ def retrieve_initial(state: RAGState) -> RAGState:
         ),
     )
     emit_rag_step("✅", f"检索完成，找到 {len(results)} 个片段", f"模式: {retrieve_meta.get('retrieval_mode', 'hybrid')}")
-    
+
     # ============================================================================
     # RAG Step 3: 构建 RAG 执行追踪数据
     # ============================================================================
@@ -298,7 +295,7 @@ def grade_documents_node(state: RAGState) -> RAGState:
     # ============================================================================
     grader = _get_grader_model()
     emit_rag_step("📊", "正在评估文档相关性...")
-    
+
     # 如果没有配置 Grading Model，默认重写查询
     if not grader:
         grade_update = {
@@ -309,31 +306,31 @@ def grade_documents_node(state: RAGState) -> RAGState:
         rag_trace = state.get("rag_trace", {}) or {}
         rag_trace.update(grade_update)
         return {"route": "rewrite_question", "rag_trace": rag_trace}
-    
+
     question = state["question"]
     context = state.get("context", "")
-    
+
     # 构建评估 Prompt
     prompt = GRADE_PROMPT.format(question=question, context=context)
-    
+
     # 调用 LLM 进行相关性评估
     response = grader.with_structured_output(GradeDocuments).invoke(
         [{"role": "user", "content": prompt}]
     )
-    
+
     score = (response.binary_score or "").strip().lower()
-    
+
     # ============================================================================
     # RAG Step 5: 路由决策
     # ============================================================================
     # 路由决策: yes → 生成答案, no → 重写查询
     route = "generate_answer" if score == "yes" else "rewrite_question"
-    
+
     if route == "generate_answer":
         emit_rag_step("✅", "文档相关性评估通过", f"评分: {score}")
     else:
         emit_rag_step("⚠️", "文档相关性不足，将重写查询", f"评分: {score}")
-    
+
     grade_update = {
         "grade_score": score,
         "grade_route": route,
@@ -341,7 +338,7 @@ def grade_documents_node(state: RAGState) -> RAGState:
     }
     rag_trace = state.get("rag_trace", {}) or {}
     rag_trace.update(grade_update)
-    
+
     return {"route": route, "rag_trace": rag_trace}
 
 
@@ -385,7 +382,7 @@ def rewrite_question_node(state: RAGState) -> RAGState:
     question = state["question"]
     emit_rag_step("✏️", "正在重写查询...")
     router = _get_router_model()
-    
+
     # 策略选择 (默认 step_back)
     strategy = "step_back"
     if router:
@@ -477,7 +474,7 @@ def retrieve_expanded(state: RAGState) -> RAGState:
     # ============================================================================
     strategy = state.get("expansion_type") or "step_back"
     emit_rag_step("🔄", "使用扩展查询重新检索...", f"策略: {strategy}")
-    
+
     results: List[dict] = []
     rerank_applied_any = False
     rerank_enabled_any = False
@@ -604,31 +601,11 @@ def retrieve_expanded(state: RAGState) -> RAGState:
     return {"docs": deduped, "context": context, "rag_trace": rag_trace}
 
 
-# ===============================================================================
 # 构建 LangGraph 状态图
-# ===============================================================================
+
 def build_rag_graph():
-    # Assemble LangGraph state machine for retrieval and rewrite flow.
-    """
-    ================================================================================
-    [LangGraph 构建] RAG 状态图
-    ================================================================================
-    
-    节点:
-        1. retrieve_initial: 初始检索
-        2. grade_documents: 相关性评估
-        3. rewrite_question: 查询重写 (条件触发)
-        4. retrieve_expanded: 扩展检索 (条件触发)
-    
-    边:
-        - retrieve_initial → grade_documents
-        - grade_documents → (条件分支)
-            * generate_answer → END
-            * rewrite_question → rewrite_question
-        - rewrite_question → retrieve_expanded
-        - retrieve_expanded → END
-    ================================================================================
-    """
+    # 图流程
+
     graph = StateGraph(RAGState)
     graph.add_node("retrieve_initial", retrieve_initial)
     graph.add_node("grade_documents", grade_documents_node)
@@ -650,44 +627,12 @@ def build_rag_graph():
     return graph.compile()
 
 
-# ===============================================================================
-# 编译并导出 RAG 图
-# ===============================================================================
 rag_graph = build_rag_graph()
 
 
 def run_rag_graph(question: str) -> dict:
     # Public execution entrypoint used by search_knowledge_base tool.
-    """
-    ================================================================================
-    [入口函数] run_rag_graph
-    ================================================================================
-    功能: 执行完整的 RAG Pipeline
-    
-    参数:
-        - question: 用户问题
-    
-    返回:
-        {
-            "question": 原始问题,
-            "query": 当前查询,
-            "docs": 检索到的文档列表,
-            "context": 格式化文档,
-            "rag_trace": 执行元数据
-        }
-    
-    调用链:
-        tools.search_knowledge_base()
-            ↓
-        run_rag_graph(question)
-            ↓
-        rag_graph.invoke({...})
-            ↓
-        [LangGraph 状态机执行]
-            ↓
-        返回结果
-    ================================================================================
-    """
+
     return rag_graph.invoke({
         "question": question,
         "query": question,

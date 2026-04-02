@@ -64,86 +64,22 @@ def _get_default_model():
     )
 
 
-# ===============================================================================
-# [核心函数] retrieve_documents - 文档检索
-# ===============================================================================
+
+
 def retrieve_documents(query: str, top_k: int = 5) -> dict:
     """
-    ================================================================================
-    [核心函数] retrieve_documents - 文档检索
-    ================================================================================
-    功能: 对用户查询进行知识库检索，返回相关文档
-    
-    完整检索流程:
-        ┌─────────────────────────────────────────────────────────────────────┐
-        │ Step 1: 向量化                                                       │
-        │         ├─ dense_embedding: 语义向量 (text-embedding-v2)            │
-        │         └─ sparse_embedding: 稀疏向量 (BM25 变体)                  │
-        │                                                                         │
-        │ Step 2: Hybrid Search                                               │
-        │         ├─ 密集向量搜索 (HNSW 索引)                                  │
-        │         ├─ 稀疏向量搜索 (SPARSE_INVERTED_INDEX)                    │
-        │         └─ RRF 融合: score = Σ 1/(rank + k=60)                     │
-        │                                                                         │
-        │ Step 3: Re-rank (可选)                                              │
-        │         ├─ 调用外部重排序 API                                        │
-        │         └─ 按相关性分数排序                                          │
-        │                                                                         │
-        │ Step 4: Auto-merging                                                │
-        │         ├─ 检查 parent_chunk_id                                     │
-        │         ├─ 替换为父分块内容                                          │
-        │         └─ 合并相关片段，减少冗余                                     │
-        │                                                                         │
-        │ Step 5: 返回结果                                                    │
-        │         └─ {"docs": [...], "meta": {...}}                          │
-        └─────────────────────────────────────────────────────────────────────┘
-    
-    参数:
-        - query: 用户查询
-        - top_k: 返回文档数量 (默认 5，实际检索 top_k*2 以保留候选)
-    
-    返回:
-        {
-            "docs": [
-                {
-                    "text": "文档内容",
-                    "filename": "文件名",
-                    "page_number": 1,
-                    "chunk_id": "chunk_id",
-                    "parent_chunk_id": "父分块ID",
-                    "score": 0.95,
-                    "rrf_rank": 1
-                },
-                ...
-            ],
-            "meta": {
-                "retrieval_mode": "hybrid",
-                "candidate_k": 10,
-                "leaf_retrieve_level": 3,
-                "auto_merge_enabled": true,
-                "auto_merge_applied": true,
-                "rerank_enabled": true,
-                "rerank_applied": true,
-                ...
-            }
-        }
-    ================================================================================
     """
-    # ========== Step 0: 初始化 Milvus Collection ==========
     milvus_service.init_collection()
-    
-    # ========== Step 1: 向量化 (密集 + 稀疏) ==========
     dense_embedding = embedding_service.get_embedding(query)
     sparse_embedding = embedding_service.get_sparse_embedding(query)
     
-    # ========== Step 2: Hybrid Search ==========
-    # 尝试混合搜索，如果失败则回退到密集搜索
+    # Hybrid Search
     try:
         results = milvus_service.hybrid_search(dense_embedding, sparse_embedding, top_k * 2)
     except Exception:
         results = milvus_service.dense_search(dense_embedding, top_k * 2)
     
-    # ========== Step 3: Re-rank (可选) ==========
+    # Re-rank
     rerank_enabled = False
     rerank_applied = False
     rerank_model = None

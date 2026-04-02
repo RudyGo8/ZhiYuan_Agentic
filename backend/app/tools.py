@@ -74,8 +74,7 @@ def set_rag_step_queue(queue):
 
 
 def emit_rag_step(icon: str, label: str, detail: str = ""):
-    # Push a single progress event to stream queue (best effort).
-    """发送 RAG 步骤更新 (流式输出用)"""
+    """进度条信息-流式输出"""
     global _RAG_STEP_QUEUE, _RAG_STEP_LOOP
     if _RAG_STEP_QUEUE is not None and _RAG_STEP_LOOP is not None:
         step = {"icon": icon, "label": label, "detail": detail}
@@ -149,9 +148,9 @@ def get_current_weather(location: str, extensions: Optional[str] = "base") -> st
         today = (f0.get("casts") or [])[0] if f0.get("casts") else {}
         out += [
             "今日天气：",
-            f"  白天：{today.get('dayweather','未知')}",
-            f"  夜间：{today.get('nightweather','未知')}",
-            f"  气温：{today.get('nighttemp','未知')}~{today.get('daytemp','未知')}℃",
+            f"  白天：{today.get('dayweather', '未知')}",
+            f"  夜间：{today.get('nightweather', '未知')}",
+            f"  气温：{today.get('nighttemp', '未知')}~{today.get('daytemp', '未知')}℃",
         ]
         return "\n".join(out)
 
@@ -169,49 +168,9 @@ def get_current_weather(location: str, extensions: Optional[str] = "base") -> st
 @tool("search_knowledge_base")
 def search_knowledge_base(query: str) -> str:
     # Main retrieval tool exposed to the agent.
-    """
-    ================================================================================
-    [核心工具] search_knowledge_base - RAG 知识库检索工具
-    ================================================================================
-    作用: 当用户问题需要知识库内容时，由 Agent 自动调用此工具
-    
-    调用时机: 
-        - Agent 分析用户问题后，判断需要查询知识库
-        - 例如: "什么是机器学习？"、"如何配置 LangChain？"
-    
-    调用限制:
-        - 每轮对话只能调用 1 次 (_KNOWLEDGE_TOOL_CALLS_THIS_TURN >= 1 时拒绝)
-        - 防止 Agent 重复调用
-    
-    完整流程:
-        ┌─────────────────────────────────────────────────────────────────────┐
-        │ Step 1: 检查调用次数 (防重复)                                        │
-        │         if _KNOWLEDGE_TOOL_CALLS_THIS_TURN >= 1:                │
-        │             return "TOOL_CALL_LIMIT_REACHED..."                  │
-        │                                                                     │
-        │ Step 2: 调用 RAG Pipeline (rag_pipeline.py)                      │
-        │         from app.rag_pipeline import run_rag_graph               │
-        │         rag_result = run_rag_graph(query)                        │
-        │                                                                     │
-        │ Step 3: 提取检索结果                                               │
-        │         docs = rag_result.get("docs", [])                        │
-        │         rag_trace = rag_result.get("rag_trace", {})              │
-        │         _set_last_rag_context({"rag_trace": rag_trace})          │
-        │                                                                     │
-        │ Step 4: 格式化返回                                                 │
-        │         "Retrieved Chunks:\n[1] filename (Page X):\n..."         │
-        └─────────────────────────────────────────────────────────────────────┘
-    
-    返回格式:
-        "Retrieved Chunks:\n[1] filename (Page 1):\n文档内容片段...\n\n---\n\n[2] ..."
-    ================================================================================
-    """
+
     global _KNOWLEDGE_TOOL_CALLS_THIS_TURN
-    
-    # ============================================================================
-    # Tool Step 1: 检查调用次数 (防止重复调用)
-    # 每轮对话只能调用 1 次
-    # ============================================================================
+
     if _KNOWLEDGE_TOOL_CALLS_THIS_TURN >= 1:
         return (
             "TOOL_CALL_LIMIT_REACHED: search_knowledge_base has already been called once in this turn. "
@@ -219,14 +178,8 @@ def search_knowledge_base(query: str) -> str:
         )
     _KNOWLEDGE_TOOL_CALLS_THIS_TURN += 1
 
-    # ============================================================================
     # Tool Step 2: 调用 RAG Pipeline (核心!)
-    # 这里会触发完整的 RAG 检索流程:
-    # 1. retrieve_initial: 初始检索
-    # 2. grade_documents: 相关性评估
-    # 3. (如需) rewrite_question: 查询重写
-    # 4. (如需) retrieve_expanded: 扩展检索
-    # ============================================================================
+
     from app.rag_pipeline import run_rag_graph
 
     rag_result = run_rag_graph(query)

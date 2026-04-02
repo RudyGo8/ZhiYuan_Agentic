@@ -107,6 +107,7 @@ class MilvusService:
         except Exception:
             return self.dense_search(dense_embedding, top_k)
 
+    # 混合检索异常用密集检索
     def dense_search(self, dense_embedding: list[float], top_k: int = 5) -> list[dict]:
         results = self._get_client().search(
             collection_name=self.collection_name,

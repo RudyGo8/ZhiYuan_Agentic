@@ -19,6 +19,7 @@ from langchain.chat_models import init_chat_model
 from langchain.agents import create_agent
 from langchain_core.messages import HumanMessage, AIMessage, AIMessageChunk, SystemMessage
 from app.tools import get_current_weather, search_knowledge_base, get_last_rag_context, reset_tool_call_guards, set_rag_step_queue
+from app.config import logger
 from datetime import datetime
 
 load_dotenv()
@@ -258,38 +259,7 @@ class ConversationStorage:
 
 def create_agent_instance():
     # Shared singleton factory: model config + tool wiring lives here.
-    """
-    ================================================================================
-    [组件2] Agent 实例创建
-    ================================================================================
-    作用: 创建 LangChain Agent 实例，绑定模型和工具
-    
-    Agent 决策流程:
-        ┌─────────────────────────────────────────────────────────────┐
-        │  用户问题                                                    │
-        │      │                                                        │
-        │      ▼                                                        │
-        │  ┌──────────────────┐                                         │
-        │  │ 判断问题类型      │── 简单问候/寒暄 → 直接回答              │
-        │  └────────┬─────────┘                                         │
-        │           │ 需要知识                                           │
-        │           ▼                                                   │
-        │  ┌─────────────────────────────────────┐                     │
-        │  │ 调用 search_knowledge_base 工具     │                     │
-        │  │ (触发 RAG Pipeline 检索)            │                     │
-        │  └─────────────┬───────────────────────┘                     │
-        │                │                                              │
-        │                ▼                                              │
-        │  ┌─────────────────────────────────────┐                     │
-        │  │ 使用检索结果 + LLM 生成答案          │                     │
-        │  └─────────────────────────────────────┘                     │
-        └─────────────────────────────────────────────────────────────┘
-    
-    工具列表:
-        - get_current_weather: 天气查询工具
-        - search_knowledge_base: RAG检索工具 (核心)
-    ================================================================================
-    """
+
     model = init_chat_model(
         model=MODEL,
         model_provider="openai",
@@ -447,6 +417,7 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
     full_response = ""
 
     async def _agent_worker():
+        """生产者协程，消费 agent.astream() 的增量输出，写入 output_queue 供 SSE 消费端发送"""
         nonlocal full_response
         try:
             async for msg, metadata in agent.astream(
@@ -499,6 +470,16 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
 
     rag_context = get_last_rag_context(clear=True)
     rag_trace = rag_context.get("rag_trace") if rag_context else None
+    tool_used = bool(rag_trace.get("tool_used")) if isinstance(rag_trace, dict) else False
+    tool_name = rag_trace.get("tool_name") if isinstance(rag_trace, dict) else None
+
+    logger.info(
+        "stream_chat_trace user_id=%s session_id=%s tool_used=%s tool_name=%s",
+        user_id,
+        session_id,
+        tool_used,
+        tool_name or "none",
+    )
 
     if rag_trace:
         yield f"data: {json.dumps({'type': 'trace', 'rag_trace': rag_trace})}\n\n"
