@@ -131,3 +131,19 @@ $3
 DEL
 $29
 rag_agent:chat_sessions:test1
+*5
+$3
+SET
+$29
+rag_agent:chat_sessions:test1
+$588
+[{"session_id": "session_1775101196144", "updated_at": "2026-04-02T11:40:03", "message_count": 2}, {"session_id": "session_1775097101995", "updated_at": "2026-04-02T10:32:24", "message_count": 4}, {"session_id": "session_1775018398556", "updated_at": "2026-04-01T12:40:40", "message_count": 4}, {"session_id": "session_1775013052405", "updated_at": "2026-04-01T11:11:01", "message_count": 2}, {"session_id": "session_1775012627557", "updated_at": "2026-04-01T11:04:19", "message_count": 4}, {"session_id": "session_1775012322654", "updated_at": "2026-04-01T10:58:50", "message_count": 2}]
+$4
+PXAT
+$13
+1775108341153
+*2
+$3
+DEL
+$29
+rag_agent:chat_sessions:test1
