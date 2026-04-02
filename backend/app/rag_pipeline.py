@@ -57,6 +57,7 @@ _router_model = None  # 查询重写模型 (LLM)
 
 
 def _get_grader_model():
+    # Lazily initialize relevance-grader model and cache it in-process.
     """获取相关性评估模型"""
     global _grader_model
     if not API_KEY or not GRADE_MODEL:
@@ -74,6 +75,7 @@ def _get_grader_model():
 
 
 def _get_router_model():
+    # Lazily initialize rewrite-strategy router model and cache it.
     """获取查询重写模型"""
     global _router_model
     if not API_KEY or not MODEL:
@@ -165,6 +167,7 @@ def _format_docs(docs: List[dict]) -> str:
 # [节点1] retrieve_initial - 初始检索
 # ===============================================================================
 def retrieve_initial(state: RAGState) -> RAGState:
+    # First retrieval pass against knowledge base.
     """
     ================================================================================
     [LangGraph 节点1] 初始检索 - retrieve_initial
@@ -271,6 +274,7 @@ def retrieve_initial(state: RAGState) -> RAGState:
 # [节点2] grade_documents_node - 相关性评估
 # ===============================================================================
 def grade_documents_node(state: RAGState) -> RAGState:
+    # Decide whether current retrieval is good enough to answer directly.
     """
     ================================================================================
     [LangGraph 节点2] 相关性评估 - grade_documents_node
@@ -345,6 +349,7 @@ def grade_documents_node(state: RAGState) -> RAGState:
 # [节点3] rewrite_question_node - 查询重写
 # ===============================================================================
 def rewrite_question_node(state: RAGState) -> RAGState:
+    # Produce expanded query when initial retrieval quality is insufficient.
     """
     ================================================================================
     [LangGraph 节点3] 查询重写 - rewrite_question_node
@@ -444,6 +449,7 @@ def rewrite_question_node(state: RAGState) -> RAGState:
 # [节点4] retrieve_expanded - 扩展检索
 # ===============================================================================
 def retrieve_expanded(state: RAGState) -> RAGState:
+    # Second retrieval pass using selected expansion strategy.
     """
     ================================================================================
     [LangGraph 节点4] 扩展检索 - retrieve_expanded
@@ -602,6 +608,7 @@ def retrieve_expanded(state: RAGState) -> RAGState:
 # 构建 LangGraph 状态图
 # ===============================================================================
 def build_rag_graph():
+    # Assemble LangGraph state machine for retrieval and rewrite flow.
     """
     ================================================================================
     [LangGraph 构建] RAG 状态图
@@ -650,6 +657,7 @@ rag_graph = build_rag_graph()
 
 
 def run_rag_graph(question: str) -> dict:
+    # Public execution entrypoint used by search_knowledge_base tool.
     """
     ================================================================================
     [入口函数] run_rag_graph

@@ -76,6 +76,7 @@ class ConversationStorage:
         return messages
 
     def save(self, user_id: str, session_id: str, messages: list, metadata: dict = None, extra_message_data: list = None):
+        # Persist one session's full transcript and optional rag trace.
         """保存对话"""
         from app.database import SessionLocal
         from app.models.db_user import User
@@ -124,6 +125,7 @@ class ConversationStorage:
             db.close()
 
     def load(self, user_id: str, session_id: str) -> list:
+        # Cache-first read path: Redis -> MySQL fallback.
         """加载对话"""
         from app.cache import cache
         
@@ -135,6 +137,7 @@ class ConversationStorage:
         return self._to_langchain_messages(records)
 
     def list_sessions(self, user_id: str) -> list:
+        # Lightweight helper that only returns session_id list.
         """列出用户的所有会话"""
         return [item["session_id"] for item in self.list_session_infos(user_id)]
 
@@ -223,6 +226,7 @@ class ConversationStorage:
             db.close()
 
     def delete_session(self, user_id: str, session_id: str) -> bool:
+        # Delete DB rows and clear related cache entries.
         """删除指定用户的会话，返回是否删除成功"""
         from app.cache import cache
         
@@ -253,6 +257,7 @@ class ConversationStorage:
 
 
 def create_agent_instance():
+    # Shared singleton factory: model config + tool wiring lives here.
     """
     ================================================================================
     [组件2] Agent 实例创建
@@ -317,6 +322,7 @@ storage = ConversationStorage()
 
 
 def summarize_old_messages(model, messages: list) -> str:
+    # Used as a guardrail against unbounded context growth.
     """将旧消息总结为摘要"""
     old_conversation = "\n".join([
         f"{'用户' if msg.type == 'human' else 'AI'}: {msg.content}"
@@ -333,6 +339,7 @@ def summarize_old_messages(model, messages: list) -> str:
 
 
 def chat_with_agent(user_text: str, user_id: str = "default_user", session_id: str = "default_session"):
+    # Sync path for non-streaming endpoint.
 
     # ============================================================================
     # Step 1: 加载历史对话
@@ -414,6 +421,7 @@ def chat_with_agent(user_text: str, user_id: str = "default_user", session_id: s
 
 
 async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", session_id: str = "default_session"):
+    # Async streaming path used by SSE endpoint.
     """使用 Agent 处理用户消息并流式返回响应。"""
     messages = storage.load(user_id, session_id)
 
