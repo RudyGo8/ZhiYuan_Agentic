@@ -1,5 +1,5 @@
 '''
-@create_time: 2026/3/30
+@create_time: 2025/10/30
 @Author: GeChao
 @File: rag_service.py
 '''

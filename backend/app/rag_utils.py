@@ -152,7 +152,8 @@ def retrieve_documents(query: str, top_k: int = 5) -> dict:
     return {"docs": results[:top_k], "meta": meta}
 
 
-# Step-back 查询扩展
+# 查询扩展策略
+# step_back 退步
 def step_back_expand(query: str) -> dict:
     try:
         from langchain.chat_models import init_chat_model

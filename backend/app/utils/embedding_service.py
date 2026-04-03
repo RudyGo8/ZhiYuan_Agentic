@@ -1,5 +1,5 @@
 '''
-@create_time: 2026/3/30
+@create_time: 2025/09/09
 @Author: GeChao
 @File: embedding_service.py
 '''

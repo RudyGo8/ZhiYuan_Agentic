@@ -4,7 +4,7 @@ from app.cache import cache
 
 
 class ParentChunkStore:
-    """父级分块存储（Mysql + Redis 缓存）。"""
+    """父级分块存储"""
     
     def _cache_key(self, chunk_id: str) -> str:
         return f"parent_chunk:{chunk_id}"

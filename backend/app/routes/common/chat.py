@@ -1,5 +1,5 @@
 '''
-@create_time: 2026/3/30
+@create_time: 2025/11/27
 @Author: GeChao
 @File: chat.py
 '''
@@ -17,6 +17,7 @@ from app.schemas.auth import (
     SessionMessagesResponse,
 )
 from app.utils.auth_utils import get_current_user
+from fastapi.responses import StreamingResponse
 
 router_r1 = APIRouter(
     prefix="/api/r1/chat",
@@ -26,10 +27,7 @@ router_r1 = APIRouter(
 
 @router_r1.post("", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest, current_user: User = Depends(get_current_user)):
-    """Non-streaming chat API.
-
-    Route layer only负责认证、参数传递和响应封装，核心逻辑在 `app.agent`.
-    """
+    """非流式输出"""
     session_id = request.session_id or "default_session"
     result = chat_with_agent(request.message, current_user.username, session_id)
     return ChatResponse(**result)
@@ -37,9 +35,7 @@ async def chat_endpoint(request: ChatRequest, current_user: User = Depends(get_c
 
 @router_r1.post("/stream")
 async def chat_stream_endpoint(request: ChatRequest, current_user: User = Depends(get_current_user)):
-    """Streaming chat API (SSE)."""
-    from fastapi.responses import StreamingResponse
-
+    """SSE 流式输出"""
     session_id = request.session_id or "default_session"
     return StreamingResponse(
         chat_with_agent_stream(request.message, current_user.username, session_id),
@@ -54,21 +50,18 @@ async def chat_stream_endpoint(request: ChatRequest, current_user: User = Depend
 
 @router_r1.get("/sessions/{session_id}", response_model=SessionMessagesResponse)
 async def get_session_messages(session_id: str, current_user: User = Depends(get_current_user)):
-    """Get message history of one chat session."""
     messages = storage.get_session_messages(current_user.username, session_id)
     return SessionMessagesResponse(messages=[MessageInfo(**msg) for msg in messages])
 
 
 @router_r1.get("/sessions", response_model=SessionListResponse)
 async def list_sessions(current_user: User = Depends(get_current_user)):
-    """List all sessions of current user."""
     sessions = storage.list_session_infos(current_user.username)
     return SessionListResponse(sessions=[SessionInfo(**s) for s in sessions])
 
 
 @router_r1.delete("/sessions/{session_id}", response_model=SessionDeleteResponse)
 async def delete_session(session_id: str, current_user: User = Depends(get_current_user)):
-    """Delete one session and all its messages."""
     deleted = storage.delete_session(current_user.username, session_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="会话不存在")

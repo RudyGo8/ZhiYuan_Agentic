@@ -1,40 +1,3 @@
-"""
-RAG Pipeline 模块 - 检索增强生成流程
-================================================================================
-核心流程 (使用 LangGraph 实现状态机):
-    
-    ┌────────────────┐    ┌──────────────┐    ┌──────────────────────────┐
-    │  用户问题      │───▶│ retrieve_    │───▶│  grade_documents        │
-    │               │    │ initial      │    │  (相关性评估)            │
-    │               │    │ (初始检索)    │    └───────────┬────────────┘
-    └────────────────┘    └──────────────┘                │
-                            │                             │
-                            │ 文档相关                     │ 文档不相关
-                            ▼                             ▼
-                    ┌───────────────┐          ┌──────────────────────┐
-                    │  生成答案     │          │ rewrite_question    │
-                    │ (END)        │          │ (查询重写)           │
-                    └───────────────┘          └──────────┬───────────┘
-                                                          │
-                                                          ▼
-                                                  ┌──────────────────┐
-                                                  │ retrieve_expanded│
-                                                  │ (扩展检索)       │
-                                                  └────────┬─────────┘
-                                                           │
-                                                           ▼
-                                                    ┌───────────┐
-                                                    │   END    │
-                                                    └───────────┘
-    
-关键特性:
-    1. 三级检索: Leaf/Parent/Higher Level 分块
-    2. Hybrid Search: 密集向量 + 稀疏向量 RRF 融合
-    3. Auto-merging: 自动合并父分块
-    4. Re-rank: 外部重排序模型
-    5. 查询重写: step-back / HyDE / complex 策略
-================================================================================
-"""
 from typing import Literal, TypedDict, List, Optional
 import os
 from dotenv import load_dotenv
@@ -52,12 +15,11 @@ MODEL = os.getenv("MODEL")
 BASE_URL = os.getenv("BASE_URL")
 GRADE_MODEL = os.getenv("GRADE_MODEL", "qwen-plus")
 
-_grader_model = None  # 相关性评估模型 (LLM)
-_router_model = None  # 查询重写模型 (LLM)
+_grader_model = None
+_router_model = None
 
 
 def _get_grader_model():
-    # Lazily initialize relevance-grader model and cache it in-process.
     """获取相关性评估模型"""
     global _grader_model
     if not API_KEY or not GRADE_MODEL:
@@ -75,8 +37,6 @@ def _get_grader_model():
 
 
 def _get_router_model():
-    # Lazily initialize rewrite-strategy router model and cache it.
-    """获取查询重写模型"""
     global _router_model
     if not API_KEY or not MODEL:
         return None
@@ -275,7 +235,7 @@ def rewrite_question_node(state: RAGState) -> RAGState:
     emit_rag_step("✏️", "正在重写查询...")
     router = _get_router_model()
 
-    # 策略选择 (默认 step_back)
+    # 策略选择
     strategy = "step_back"
     if router:
         prompt = (
@@ -299,10 +259,6 @@ def rewrite_question_node(state: RAGState) -> RAGState:
     step_back_answer = ""
     hypothetical_doc = ""
 
-    # ============================================================================
-    # RAG Step 7: 执行 step_back 策略
-    # ============================================================================
-    # 执行 step_back 策略
     if strategy in ("step_back", "complex"):
         emit_rag_step("🧠", f"使用策略: {strategy}", "生成退步问题")
         step_back = step_back_expand(question)
@@ -310,10 +266,6 @@ def rewrite_question_node(state: RAGState) -> RAGState:
         step_back_answer = step_back.get("step_back_answer", "")
         expanded_query = step_back.get("expanded_query", question)
 
-    # ============================================================================
-    # RAG Step 8: 执行 HyDE 策略
-    # ============================================================================
-    # 执行 HyDE 策略
     if strategy in ("hyde", "complex"):
         emit_rag_step("📝", "HyDE 假设性文档生成中...")
         hypothetical_doc = generate_hypothetical_document(question)
@@ -334,36 +286,8 @@ def rewrite_question_node(state: RAGState) -> RAGState:
     }
 
 
-# ===============================================================================
-# [节点4] retrieve_expanded - 扩展检索
-# ===============================================================================
+# retrieve_expanded - 二次检索
 def retrieve_expanded(state: RAGState) -> RAGState:
-    # Second retrieval pass using selected expansion strategy.
-    """
-    ================================================================================
-    [LangGraph 节点4] 扩展检索 - retrieve_expanded
-    ================================================================================
-    功能: 使用重写后的查询进行二次检索
-    
-    检索策略:
-        - 根据 rewrite_question_node 选择的策略执行:
-          - hyde: 使用假设性文档检索
-          - step_back: 使用退步问题检索
-          - complex: 同时使用两者
-        
-        - 多策略结果融合 (RRF)
-        
-        - 去重处理
-    
-    输出字段:
-        - docs: 扩展检索后的文档列表
-        - context: 格式化后的文档字符串
-        - rag_trace: 更新后的执行元数据
-    ================================================================================
-    """
-    # ============================================================================
-    # RAG Step 9: 使用重写后的查询进行扩展检索
-    # ============================================================================
     strategy = state.get("expansion_type") or "step_back"
     emit_rag_step("🔄", "使用扩展查询重新检索...", f"策略: {strategy}")
 
@@ -382,10 +306,6 @@ def retrieve_expanded(state: RAGState) -> RAGState:
     auto_merge_replaced_chunks = 0
     auto_merge_steps = 0
 
-    # ============================================================================
-    # RAG Step 10: HyDE 检索 (如果启用)
-    # ============================================================================
-    # ========== HyDE 检索 ==========
     if strategy in ("hyde", "complex"):
         hypothetical_doc = state.get("hypothetical_doc") or generate_hypothetical_document(state["question"])
         retrieved_hyde = retrieve_documents(hypothetical_doc, top_k=5)
@@ -415,10 +335,6 @@ def retrieve_expanded(state: RAGState) -> RAGState:
         auto_merge_replaced_chunks += int(hyde_meta.get("auto_merge_replaced_chunks") or 0)
         auto_merge_steps += int(hyde_meta.get("auto_merge_steps") or 0)
 
-    # ============================================================================
-    # RAG Step 11: Step-back 检索 (如果启用)
-    # ============================================================================
-    # ========== Step-back 检索 ==========
     if strategy in ("step_back", "complex"):
         expanded_query = state.get("expanded_query") or state["question"]
         retrieved_stepback = retrieve_documents(expanded_query, top_k=5)
@@ -448,10 +364,7 @@ def retrieve_expanded(state: RAGState) -> RAGState:
         auto_merge_replaced_chunks += int(step_meta.get("auto_merge_replaced_chunks") or 0)
         auto_merge_steps += int(step_meta.get("auto_merge_steps") or 0)
 
-    # ============================================================================
-    # RAG Step 12: RRF 融合 + 去重
-    # ============================================================================
-    # ========== RRF 融合 + 去重 ==========
+    # RRF 融合 + 去重
     deduped = []
     seen = set()
     for item in results:
@@ -494,7 +407,6 @@ def retrieve_expanded(state: RAGState) -> RAGState:
 
 
 # 构建 LangGraph 状态图
-
 def build_rag_graph():
     # 图流程
 
@@ -523,7 +435,6 @@ rag_graph = build_rag_graph()
 
 
 def run_rag_graph(question: str) -> dict:
-    # Public execution entrypoint used by search_knowledge_base tool.
 
     return rag_graph.invoke({
         "question": question,
