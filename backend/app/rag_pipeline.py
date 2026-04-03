@@ -92,9 +92,7 @@ def _get_router_model():
     return _router_model
 
 
-# ===============================================================================
-# 提示词模板
-# ===============================================================================
+# 评估提示词模板
 GRADE_PROMPT = (
     "You are a grader assessing relevance of a retrieved document to a user question. \n "
     "Here is the retrieved document: \n\n {context} \n\n"
@@ -160,46 +158,41 @@ def _format_docs(docs: List[dict]) -> str:
     return "\n\n---\n\n".join(chunks)
 
 
-# ===============================================================================
-# [节点1] retrieve_initial - 初始检索
-# ===============================================================================
-def retrieve_initial(state: RAGState) -> RAGState:
+# retrieve_initial - 初始检索
 
+def retrieve_initial(state: RAGState) -> RAGState:
     query = state["question"]
     emit_rag_step("🔍", "正在检索知识库...", f"查询: {query[:50]}")
 
-    # 调用底层检索函数 (见 rag_utils.py)
     retrieved = retrieve_documents(query, top_k=5)
     results = retrieved.get("docs", [])
     retrieve_meta = retrieved.get("meta", {})
     context = _format_docs(results)
 
-    # ============================================================================
-    # RAG Step 2: 三级分块检索 (Auto-merging)
-    # ============================================================================
-    # 发送步骤更新 (流式输出用)
+    # 展示流程
     emit_rag_step(
-        "🧱",
-        "三级分块检索",
+        "🔎",
+        "混合检索召回",
         (
-            f"叶子层 L{retrieve_meta.get('leaf_retrieve_level', 3)} 召回，"
+            f"模式: {retrieve_meta.get('retrieval_mode', 'hybrid')}，"
             f"候选 {retrieve_meta.get('candidate_k', 0)}"
         ),
     )
     emit_rag_step(
         "🧩",
-        "Auto-merging 合并",
+        "父子分块合并 (Auto-merge)",
         (
             f"启用: {bool(retrieve_meta.get('auto_merge_enabled'))}，"
             f"应用: {bool(retrieve_meta.get('auto_merge_applied'))}，"
             f"替换片段: {retrieve_meta.get('auto_merge_replaced_chunks', 0)}"
         ),
     )
-    emit_rag_step("✅", f"检索完成，找到 {len(results)} 个片段", f"模式: {retrieve_meta.get('retrieval_mode', 'hybrid')}")
+    emit_rag_step(
+        "✅",
+        f"初次检索完成，保留 {len(results)} 个片段",
+        f"重排: {bool(retrieve_meta.get('rerank_applied'))}"
+    )
 
-    # ============================================================================
-    # RAG Step 3: 构建 RAG 执行追踪数据
-    # ============================================================================
     rag_trace = {
         "tool_used": True,
         "tool_name": "search_knowledge_base",
@@ -230,32 +223,8 @@ def retrieve_initial(state: RAGState) -> RAGState:
     }
 
 
-# ===============================================================================
-# [节点2] grade_documents_node - 相关性评估
-# ===============================================================================
 def grade_documents_node(state: RAGState) -> RAGState:
-    # Decide whether current retrieval is good enough to answer directly.
-    """
-    ================================================================================
-    [LangGraph 节点2] 相关性评估 - grade_documents_node
-    ================================================================================
-    功能: 使用 LLM 评估检索到的文档与用户问题的相关性
-    
-    流程:
-        1. 构建评估 Prompt
-        2. 调用 LLM (Grade Model) 进行相关性评分
-        3. 根据评分决定路由:
-           - yes → generate_answer (文档相关，直接生成答案)
-           - no → rewrite_question (文档不相关，重写查询)
-    
-    评估标准:
-        - 文档是否包含与问题相关的关键词?
-        - 文档的语义是否与问题相关?
-    ================================================================================
-    """
-    # ============================================================================
-    # RAG Step 4: LLM 相关性评估
-    # ============================================================================
+    '''相关性评估'''
     grader = _get_grader_model()
     emit_rag_step("📊", "正在评估文档相关性...")
 
@@ -273,19 +242,14 @@ def grade_documents_node(state: RAGState) -> RAGState:
     question = state["question"]
     context = state.get("context", "")
 
-    # 构建评估 Prompt
     prompt = GRADE_PROMPT.format(question=question, context=context)
 
     # 调用 LLM 进行相关性评估
     response = grader.with_structured_output(GradeDocuments).invoke(
         [{"role": "user", "content": prompt}]
     )
-
     score = (response.binary_score or "").strip().lower()
 
-    # ============================================================================
-    # RAG Step 5: 路由决策
-    # ============================================================================
     # 路由决策: yes → 生成答案, no → 重写查询
     route = "generate_answer" if score == "yes" else "rewrite_question"
 
@@ -305,43 +269,8 @@ def grade_documents_node(state: RAGState) -> RAGState:
     return {"route": route, "rag_trace": rag_trace}
 
 
-# ===============================================================================
-# [节点3] rewrite_question_node - 查询重写
-# ===============================================================================
+# 查询重写
 def rewrite_question_node(state: RAGState) -> RAGState:
-    # Produce expanded query when initial retrieval quality is insufficient.
-    """
-    ================================================================================
-    [LangGraph 节点3] 查询重写 - rewrite_question_node
-    ================================================================================
-    功能: 当首次检索结果不相关时，对查询进行重写和扩展
-    
-    重写策略 (由 LLM 选择):
-        1. step_back (退步问题)
-           - 适用: 包含具体名称、日期、代码等细节的问题
-           - 原理: 先理解通用概念，再回到具体问题
-           - 示例: "Transformer注意力机制" → "什么是Transformer?" + "注意力机制原理"
-        
-        2. hyde (假设性文档)
-           - 适用: 模糊、概念性、需要解释的问题
-           - 原理: 先让 LLM 生成假设性回答，再用它检索
-           - 示例: "机器学习是什么?" → 生成假设回答 → 用假设回答检索
-        
-        3. complex (综合)
-           - 适用: 多步骤、需要分解或综合的问题
-           - 原理: 同时使用 step_back 和 hyde
-    
-    输出字段:
-        - expansion_type: 使用的策略
-        - expanded_query: 扩展后的查询
-        - step_back_question: 退步问题
-        - step_back_answer: 退步答案
-        - hypothetical_doc: HyDE 假设文档
-    ================================================================================
-    """
-    # ============================================================================
-    # RAG Step 6: 选择查询重写策略
-    # ============================================================================
     question = state["question"]
     emit_rag_step("✏️", "正在重写查询...")
     router = _get_router_model()

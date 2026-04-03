@@ -33,8 +33,7 @@ def _get_default_model():
 
 
 def retrieve_documents(query: str, top_k: int = 5) -> dict:
-    """
-    """
+
     milvus_service.init_collection()
     dense_embedding = embedding_service.get_embedding(query)
     sparse_embedding = embedding_service.get_sparse_embedding(query)

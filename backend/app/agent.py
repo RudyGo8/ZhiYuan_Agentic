@@ -391,7 +391,6 @@ def chat_with_agent(user_text: str, user_id: str = "default_user", session_id: s
 
 
 async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", session_id: str = "default_session"):
-    # Async streaming path used by SSE endpoint.
     """使用 Agent 处理用户消息并流式返回响应。"""
     messages = storage.load(user_id, session_id)
 
