@@ -191,7 +191,6 @@ def step_back_expand(query: str) -> dict:
 
 
 # HyDE 假设文档生成
-
 def generate_hypothetical_document(query: str) -> str:
     try:
         from langchain.chat_models import init_chat_model

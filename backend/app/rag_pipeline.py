@@ -77,22 +77,6 @@ class RewriteStrategy(BaseModel):
 
 # RAG 状态定义
 class RAGState(TypedDict):
-    """
-    RAG Pipeline 状态定义
-    
-    字段说明:
-        - question: 原始用户问题
-        - query: 当前查询 (可能是重写后的)
-        - context: 格式化后的文档上下文
-        - docs: 检索到的文档列表
-        - route: 当前路由 (generate_answer / rewrite_question)
-        - expansion_type: 扩展策略类型
-        - expanded_query: 扩展后的查询
-        - step_back_question: 退步问题
-        - step_back_answer: 退步答案
-        - hypothetical_doc: HyDE 假设文档
-        - rag_trace: 执行元数据
-    """
     question: str
     query: str
     context: str
@@ -119,7 +103,6 @@ def _format_docs(docs: List[dict]) -> str:
 
 
 # retrieve_initial - 初始检索
-
 def retrieve_initial(state: RAGState) -> RAGState:
     query = state["question"]
     emit_rag_step("🔍", "正在检索知识库...", f"查询: {query[:50]}")
@@ -248,7 +231,7 @@ def rewrite_question_node(state: RAGState) -> RAGState:
         )
         try:
             decision = router.with_structured_output(RewriteStrategy).invoke(
-                [{"role": "user", "content": prompt}]
+             [{"role": "user", "content": prompt}]
             )
             strategy = decision.strategy
         except Exception:
@@ -289,6 +272,8 @@ def rewrite_question_node(state: RAGState) -> RAGState:
 # retrieve_expanded - 二次检索
 def retrieve_expanded(state: RAGState) -> RAGState:
     strategy = state.get("expansion_type") or "step_back"
+    hyde_docs: List[dict] = []
+    step_docs: List[dict] = []
     emit_rag_step("🔄", "使用扩展查询重新检索...", f"策略: {strategy}")
 
     results: List[dict] = []
@@ -309,11 +294,13 @@ def retrieve_expanded(state: RAGState) -> RAGState:
     if strategy in ("hyde", "complex"):
         hypothetical_doc = state.get("hypothetical_doc") or generate_hypothetical_document(state["question"])
         retrieved_hyde = retrieve_documents(hypothetical_doc, top_k=5)
-        results.extend(retrieved_hyde.get("docs", []))
+        # results.extend(retrieved_hyde.get("docs", []))
+        hyde_docs = retrieved_hyde.get("docs", [])
+        results.extend(hyde_docs)
         hyde_meta = retrieved_hyde.get("meta", {})
         emit_rag_step(
             "🧱",
-            "HyDE 三级检索",
+            "HyDE 扩展检索",
             (
                 f"L{hyde_meta.get('leaf_retrieve_level', 3)} 召回，"
                 f"候选 {hyde_meta.get('candidate_k', 0)}，"
@@ -338,11 +325,14 @@ def retrieve_expanded(state: RAGState) -> RAGState:
     if strategy in ("step_back", "complex"):
         expanded_query = state.get("expanded_query") or state["question"]
         retrieved_stepback = retrieve_documents(expanded_query, top_k=5)
-        results.extend(retrieved_stepback.get("docs", []))
+        step_docs = retrieved_stepback.get("docs", [])
+        results.extend(step_docs)
+        # results.extend(retrieved_stepback.get("docs", []))
+
         step_meta = retrieved_stepback.get("meta", {})
         emit_rag_step(
             "🧱",
-            "Step-back 三级检索",
+            "Step-back 扩展检索",
             (
                 f"L{step_meta.get('leaf_retrieve_level', 3)} 召回，"
                 f"候选 {step_meta.get('candidate_k', 0)}，"
@@ -365,17 +355,28 @@ def retrieve_expanded(state: RAGState) -> RAGState:
         auto_merge_steps += int(step_meta.get("auto_merge_steps") or 0)
 
     # RRF 融合 + 去重
-    deduped = []
-    seen = set()
-    for item in results:
-        key = (item.get("filename"), item.get("page_number"), item.get("text"))
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(item)
+    rrf_k = 60
+    rrf_scores = {}
+    docs_by_key = {}
+    # 仅融合真实分支结果；若某次没有分支结果则回退到 results
+    source_lists = [hyde_docs, step_docs]
+    if not any(source_lists):
+        source_lists = [results]
+    for ranked_docs in source_lists:
+        for rank, item in enumerate(ranked_docs, 1):
+            key = (item.get("filename"), item.get("page_number"),
+                   item.get("text"))
+            docs_by_key.setdefault(key, dict(item))
+            rrf_scores[key] = rrf_scores.get(key, 0.0) + (1.0 / (rrf_k + rank))
 
-    for idx, item in enumerate(deduped, 1):
+    ranked_keys = sorted(rrf_scores.keys(), key=lambda k: rrf_scores[k],
+                         reverse=True)
+    deduped = []
+    for idx, key in enumerate(ranked_keys, 1):
+        item = docs_by_key[key]
+        item["rrf_score"] = round(rrf_scores[key], 8)
         item["rrf_rank"] = idx
+        deduped.append(item)
 
     context = _format_docs(deduped)
     emit_rag_step("✅", f"扩展检索完成，共 {len(deduped)} 个片段")
@@ -402,6 +403,7 @@ def retrieve_expanded(state: RAGState) -> RAGState:
         "auto_merge_threshold": auto_merge_threshold,
         "auto_merge_replaced_chunks": auto_merge_replaced_chunks,
         "auto_merge_steps": auto_merge_steps,
+        "rrf_k": rrf_k,
     })
     return {"docs": deduped, "context": context, "rag_trace": rag_trace}
 
@@ -435,7 +437,6 @@ rag_graph = build_rag_graph()
 
 
 def run_rag_graph(question: str) -> dict:
-
     return rag_graph.invoke({
         "question": question,
         "query": question,

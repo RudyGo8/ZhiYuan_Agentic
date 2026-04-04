@@ -1,4 +1,4 @@
-from dotenv import load_dotenv
+﻿from dotenv import load_dotenv
 import os
 import json
 import asyncio
@@ -14,6 +14,46 @@ load_dotenv()
 API_KEY = os.getenv("ARK_API_KEY")
 MODEL = os.getenv("MODEL")
 BASE_URL = os.getenv("BASE_URL")
+MODEL_INPUT_PRICE_PER_1K = float(os.getenv("MODEL_INPUT_PRICE_PER_1K", "0"))
+MODEL_OUTPUT_PRICE_PER_1K = float(os.getenv("MODEL_OUTPUT_PRICE_PER_1K", "0"))
+COST_CURRENCY = os.getenv("COST_CURRENCY", "CNY")
+
+
+def _normalize_usage(usage: dict | None) -> dict | None:
+    if not isinstance(usage, dict):
+        return None
+    in_tokens = usage.get("input_tokens", usage.get("prompt_tokens", 0)) or 0
+    out_tokens = usage.get("output_tokens", usage.get("completion_tokens", 0)) or 0
+    total_tokens = usage.get("total_tokens", 0) or (in_tokens + out_tokens)
+    return {
+        "input_tokens": int(in_tokens),
+        "output_tokens": int(out_tokens),
+        "total_tokens": int(total_tokens),
+    }
+
+
+def _extract_usage_from_message(msg) -> dict | None:
+    if msg is None:
+        return None
+    usage = getattr(msg, "usage_metadata", None)
+    normalized = _normalize_usage(usage)
+    if normalized:
+        return normalized
+    response_meta = getattr(msg, "response_metadata", None) or {}
+    if isinstance(response_meta, dict):
+        normalized = _normalize_usage(response_meta.get("token_usage"))
+        if normalized:
+            return normalized
+    return None
+
+
+def _estimate_cost(usage: dict | None) -> dict:
+    if not usage:
+        return {"model": MODEL, "usage": None}
+    return {
+        "model": MODEL,
+        "usage": usage,
+    }
 
 
 class ConversationStorage:
@@ -89,7 +129,7 @@ class ConversationStorage:
             db.close()
 
     def load(self, user_id: str, session_id: str) -> list:
-        """加载对话"""
+
         from app.cache import cache
 
         cached = cache.get_json(self._messages_cache_key(user_id, session_id))
@@ -100,7 +140,7 @@ class ConversationStorage:
         return self._to_langchain_messages(records)
 
     def list_sessions(self, user_id: str) -> list:
-        """列出用户的所有会话"""
+        """List all session IDs for a user."""
         return [item["session_id"] for item in self.list_session_infos(user_id)]
 
     def list_session_infos(self, user_id: str) -> list[dict]:
@@ -248,16 +288,16 @@ storage = ConversationStorage()
 
 
 def summarize_old_messages(model, messages: list) -> str:
-    """将旧消息总结为摘要"""
-    old_conversation = "\n".join([
-        f"{'用户' if msg.type == 'human' else 'AI'}: {msg.content}"
-        for msg in messages
-    ])
+    """Summarize old conversation turns to keep prompt length bounded."""
+    old_conversation = "\n".join(
+        [f"{'用户' if msg.type == 'human' else 'AI'}: {msg.content}" for msg in messages]
+    )
 
-    summary_prompt = f"""请总结以下对话的关键信息：
-
-{old_conversation}
-总结（包含用户信息、重要事实、待办事项）："""
+    summary_prompt = (
+        "请总结以下对话关键信息（用户偏好、重要事实、待办事项）。\n\n"
+        f"{old_conversation}\n\n"
+        "请输出简洁摘要。"
+    )
 
     summary = model.invoke(summary_prompt).content
     return summary
@@ -284,16 +324,19 @@ def chat_with_agent(user_text: str, user_id: str = "default_user", session_id: s
     )
 
     response_content = ""
+    usage = None
     if isinstance(result, dict):
         if "output" in result:
             response_content = result["output"]
         elif "messages" in result and result["messages"]:
             msg = result["messages"][-1]
             response_content = getattr(msg, "content", str(msg))
+            usage = _extract_usage_from_message(msg)
         else:
             response_content = str(result)
     elif hasattr(result, "content"):
         response_content = result.content
+        usage = _extract_usage_from_message(result)
     else:
         response_content = str(result)
 
@@ -301,6 +344,9 @@ def chat_with_agent(user_text: str, user_id: str = "default_user", session_id: s
 
     rag_context = get_last_rag_context(clear=True)
     rag_trace = rag_context.get("rag_trace") if rag_context else None
+    if not isinstance(rag_trace, dict):
+        rag_trace = {}
+    rag_trace["token_usage"] = _estimate_cost(usage)
 
     extra_message_data = [None] * (len(messages) - 1) + [{"rag_trace": rag_trace}]
     storage.save(user_id, session_id, messages, extra_message_data=extra_message_data)
@@ -312,7 +358,7 @@ def chat_with_agent(user_text: str, user_id: str = "default_user", session_id: s
 
 
 async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", session_id: str = "default_session"):
-    """使用 Agent 处理用户消息并流式返回响应。"""
+    """Handle user message with agent and stream SSE events."""
     messages = storage.load(user_id, session_id)
 
     get_last_rag_context(clear=True)
@@ -328,17 +374,15 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
 
     if len(messages) > 50:
         summary = summarize_old_messages(model, messages[:40])
-        messages = [
-                       SystemMessage(content=f"之前的对话摘要：\n{summary}")
-                   ] + messages[40:]
+        messages = [SystemMessage(content=f"之前的对话摘要：\n{summary}")] + messages[40:]
 
     messages.append(HumanMessage(content=user_text))
 
     full_response = ""
+    stream_usage = None
 
     async def _agent_worker():
-        """生产者协程，消费 agent.astream() 的增量输出，写入 output_queue 供 SSE 消费端发送"""
-        nonlocal full_response
+        nonlocal full_response, stream_usage
         try:
             async for msg, metadata in agent.astream(
                     {"messages": messages},
@@ -347,6 +391,11 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
             ):
                 if not isinstance(msg, AIMessageChunk):
                     continue
+
+                usage = _extract_usage_from_message(msg)
+                if usage:
+                    stream_usage = usage
+
                 if getattr(msg, "tool_call_chunks", None):
                     continue
 
@@ -390,6 +439,10 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
 
     rag_context = get_last_rag_context(clear=True)
     rag_trace = rag_context.get("rag_trace") if rag_context else None
+    if not isinstance(rag_trace, dict):
+        rag_trace = {}
+    rag_trace["token_usage"] = _estimate_cost(stream_usage)
+
     tool_used = bool(rag_trace.get("tool_used")) if isinstance(rag_trace, dict) else False
     tool_name = rag_trace.get("tool_name") if isinstance(rag_trace, dict) else None
 
