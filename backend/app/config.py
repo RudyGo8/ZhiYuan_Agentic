@@ -15,7 +15,7 @@ load_dotenv()
 MYSQL_USERNAME = os.getenv("MYSQL_USERNAME", "root")
 MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "123456")
 MYSQL_HOST = os.getenv("MYSQL_HOST", "localhost")
-MYSQL_PORT = int(os.getenv("MYSQL_PORT", "3306"))
+MYSQL_PORT = int(os.getenv("MYSQL_PORT", "3307"))
 MYSQL_DATABASE = os.getenv("MYSQL_DATABASE", "langchain_app")
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
@@ -42,6 +42,12 @@ JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "1440"))
 ADMIN_INVITE_CODE = os.getenv("ADMIN_INVITE_CODE", "")
 PASSWORD_PBKDF2_ROUNDS = int(os.getenv("PASSWORD_PBKDF2_ROUNDS", "310000"))
 
+MCP_ENABLED = os.getenv("MCP_ENABLED", "false").lower() == "true"
+MCP_SERVERS_JSON = os.getenv("MCP_SERVERS_JSON", "")
+MCP_TOOL_ALLOWLIST = os.getenv("MCP_TOOL_ALLOWLIST", "")
+MCP_SOURCE_ALLOWLIST = os.getenv("MCP_SOURCE_ALLOWLIST", "")
+MCP_MAX_TOOLS_PER_SOURCE = int(os.getenv("MCP_MAX_TOOLS_PER_SOURCE", "3"))
+
 LOG_PATH = os.getenv("LOG_PATH", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs"))
 
 
@@ -65,31 +71,34 @@ class JsonLogFormatter(logging.Formatter):
 
 
 def setup_logging(log_file_path=None):
+    root_logger = logging.getLogger()
+    if getattr(root_logger, "_rag_agent_logging_configured", False):
+        return
+
     if log_file_path is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         log_file_path = "%s/rag_agent_%s.log" % (LOG_PATH, timestamp)
 
-    # 确保日志目录存在
-    log_dir = os.path.dirname(log_file_path)
-    if log_dir and not os.path.exists(log_dir):
-        os.makedirs(log_dir, exist_ok=True)
-
-    logger = logging.getLogger()
-    logger.setLevel(logging.INFO)
-
-    json_formatter = JsonLogFormatter()
-
-    file_handler = TimedRotatingFileHandler(log_file_path, when='midnight', interval=1, backupCount=5)
-    file_handler.setLevel(logging.INFO)
-    file_handler.setFormatter(json_formatter)
+    root_logger.setLevel(logging.INFO)
+    fmt = JsonLogFormatter()
 
     stream_handler = logging.StreamHandler()
     stream_handler.setLevel(logging.INFO)
-    stream_handler.setFormatter(json_formatter)
+    stream_handler.setFormatter(fmt)
+    root_logger.addHandler(stream_handler)
 
-    logger.addHandler(file_handler)
-    logger.addHandler(stream_handler)
+    try:
+        log_dir = os.path.dirname(log_file_path)
+        if log_dir and not os.path.exists(log_dir):
+            os.makedirs(log_dir, exist_ok=True)
+        file_handler = TimedRotatingFileHandler(log_file_path, when='midnight', interval=1, backupCount=5)
+        file_handler.setLevel(logging.INFO)
+        file_handler.setFormatter(fmt)
+        root_logger.addHandler(file_handler)
+    except OSError as e:
+        root_logger.warning("File logging disabled, fallback to stdout only: %s", e)
 
+    root_logger._rag_agent_logging_configured = True
 
 setup_logging()
 logger = logging.getLogger(__name__)

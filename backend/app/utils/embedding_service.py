@@ -6,6 +6,7 @@
 import os
 import re
 import math
+import threading
 import requests
 from collections import Counter
 from app.config import BASE_URL, EMBEDDER, ARK_API_KEY
@@ -23,6 +24,7 @@ class EmbeddingService:
         self._doc_freq = Counter()
         self._total_docs = 0
         self._avg_doc_len = 0
+        self._stats_lock = threading.Lock()
 
     def get_embeddings(self, texts: list[str]) -> list[list[float]]:
         headers = {
@@ -73,24 +75,40 @@ class EmbeddingService:
         doc_len = len(tokens)
         tf = Counter(tokens)
         sparse_vector = {}
-        for token, freq in tf.items():
-            if token not in self._vocab:
-                self._vocab[token] = self._vocab_counter
-                self._vocab_counter += 1
-            idx = self._vocab[token]
-            df = self._doc_freq.get(token, 0)
-            if df == 0:
-                idf = math.log((self._total_docs + 1) / 1)
-            else:
-                idf = math.log((self._total_docs - df + 0.5) / (df + 0.5) + 1)
-            numerator = freq * (self.k1 + 1)
-            denominator = freq + self.k1 * (1 - self.b + self.b * doc_len / max(self._avg_doc_len, 1))
-            score = idf * numerator / denominator
-            if score > 0:
-                sparse_vector[idx] = float(score)
+        with self._stats_lock:
+            total_docs = max(self._total_docs, 1)
+            avg_doc_len = self._avg_doc_len if self._avg_doc_len > 0 else doc_len
+
+            for token, freq in tf.items():
+                if token not in self._vocab:
+                    self._vocab[token] = self._vocab_counter
+                    self._vocab_counter += 1
+                idx = self._vocab[token]
+                df = self._doc_freq.get(token, 0)
+                # BM25-like smoothing; keeps sparse vectors non-empty even before corpus warm-up.
+                idf = math.log((total_docs + 1.0) / (df + 0.5)) + 1.0
+                numerator = freq * (self.k1 + 1)
+                denominator = freq + self.k1 * (1 - self.b + self.b * doc_len / max(avg_doc_len, 1))
+                score = idf * numerator / denominator
+                if score > 0:
+                    sparse_vector[idx] = float(score)
         return sparse_vector
 
     def get_sparse_embeddings(self, texts: list[str]) -> list[dict]:
+        tokenized_docs = [self.tokenize(text) for text in texts]
+        with self._stats_lock:
+            total_len = self._avg_doc_len * self._total_docs
+            for tokens in tokenized_docs:
+                if not tokens:
+                    continue
+                self._total_docs += 1
+                total_len += len(tokens)
+                for token in set(tokens):
+                    self._doc_freq[token] += 1
+                    if token not in self._vocab:
+                        self._vocab[token] = self._vocab_counter
+                        self._vocab_counter += 1
+            self._avg_doc_len = total_len / self._total_docs if self._total_docs > 0 else 0
         return [self.get_sparse_embedding(text) for text in texts]
 
 

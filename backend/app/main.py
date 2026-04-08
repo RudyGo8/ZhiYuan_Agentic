@@ -10,14 +10,17 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from app.agent import rebuild_agent_with_external_tools
 from app.config import logger
 from app.database import init_db
+from app.mcp.client_manager import mcp_client_manager
 from app.routes.common.auth import router_r1 as auth_router_r1
 from app.routes.common.chat import router_r1 as chat_router_r1
 from app.routes.common.document import router_r1 as document_router_r1
 
-# Frontend
+# 前端
 FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
+FRONTEND_DIST_DIR = FRONTEND_DIR / "dist"
 
 app = FastAPI(title="RAG Agent API")
 
@@ -25,6 +28,14 @@ app = FastAPI(title="RAG Agent API")
 @app.on_event("startup")
 async def startup_event():
     init_db()
+    await mcp_client_manager.initialize()
+    enabled_tools = rebuild_agent_with_external_tools()
+    logger.info("Agent external toolset loaded: %s", enabled_tools)
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    return
 
 
 app.add_middleware(
@@ -38,7 +49,6 @@ app.add_middleware(
 
 @app.middleware("http")
 async def log_request(request: Request, call_next):
-    """Log request and response status for API observability."""
     logger.info(f"Request: {request.method} {request.url}")
     response = await call_next(request)
     logger.info(f"Response: {response.status_code} {request.url}")
@@ -49,8 +59,10 @@ app.include_router(auth_router_r1)
 app.include_router(chat_router_r1)
 app.include_router(document_router_r1)
 
-# Mount frontend as the root path.
-app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
+if FRONTEND_DIST_DIR.exists():
+    app.mount("/", StaticFiles(directory=str(FRONTEND_DIST_DIR), html=True), name="frontend")
+else:
+    logger.warning("Frontend dist not found at %s, skip static mount.", FRONTEND_DIST_DIR)
 
 if __name__ == "__main__":
     import uvicorn

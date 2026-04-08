@@ -3,8 +3,8 @@
 @Author: GeChao
 @File: auth.py
 '''
-from pydantic import BaseModel
-from typing import Optional
+from pydantic import BaseModel, ConfigDict
+from typing import Any, Optional
 
 
 class RegisterRequest(BaseModel):
@@ -44,10 +44,16 @@ class RetrievedChunk(BaseModel):
 
 
 class RagTrace(BaseModel):
+    model_config = ConfigDict(extra="allow")
     tool_used: bool = False
     tool_name: str = ""
     query: Optional[str] = None
-    retrieved_chunks: Optional[list] = None
+    expanded_query: Optional[str] = None
+    retrieval_stage: Optional[str] = None
+    grade_score: Optional[str] = None
+    rewrite_strategy: Optional[str] = None
+    token_usage: Optional[dict[str, Any]] = None
+    retrieved_chunks: Optional[list[dict[str, Any]]] = None
 
 
 class ChatResponse(BaseModel):

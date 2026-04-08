@@ -229,6 +229,12 @@
                   <div v-if="msg.ragTrace.grade_score" class="trace-line">
                     相关性评分：{{ msg.ragTrace.grade_score }}
                   </div>
+                  <div v-if="msg.ragTrace.skill?.display_name" class="trace-line">
+                    Skill：{{ msg.ragTrace.skill.display_name }}
+                  </div>
+                  <div v-if="Array.isArray(msg.ragTrace.mcp_calls)" class="trace-line">
+                    MCP 调用：{{ msg.ragTrace.mcp_calls.length }} 次
+                  </div>
                 </div>
               </details>
             </div>
@@ -446,7 +452,12 @@ export default {
 
             if (!eventStr.startsWith('data: ')) continue;
             const dataStr = eventStr.slice(6);
-            if (dataStr === '[DONE]') continue;
+            if (dataStr === '[DONE]') {
+              if (this.messages[botMsgIdx]?.isThinking) {
+                this.messages[botMsgIdx].isThinking = false;
+              }
+              continue;
+            }
 
             try {
               const data = JSON.parse(dataStr);

@@ -27,6 +27,7 @@ class MilvusWriter:
                 "text": doc["text"][:2000],
                 "filename": doc["filename"],
                 "file_type": doc["file_type"],
+                "page_number": doc.get("page_number", 0),
                 "chunk_id": doc.get("chunk_id", ""),
                 "parent_chunk_id": doc.get("parent_chunk_id", ""),
                 "chunk_level": doc.get("chunk_level", 3),

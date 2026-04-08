@@ -16,7 +16,7 @@ from app.database import get_db
 from app.models.db_user import User
 from app.config import JWT_SECRET_KEY, JWT_ALGORITHM, JWT_EXPIRE_MINUTES, ADMIN_INVITE_CODE, PASSWORD_PBKDF2_ROUNDS
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/r1/auth/login")
 
 
 def verify_password(plain_password: str, password_hash: str) -> bool:
@@ -48,6 +48,16 @@ def create_access_token(username: str, role: str) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=JWT_EXPIRE_MINUTES)
     payload = {"sub": username, "role": role, "exp": expire}
     return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+
+
+def decode_access_token(token: str) -> dict | None:
+    try:
+        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+        if not payload.get("sub"):
+            return None
+        return payload
+    except JWTError:
+        return None
 
 
 def authenticate_user(db: Session, username: str, password: str) -> User | None:

@@ -39,9 +39,11 @@ def retrieve_documents(query: str, top_k: int = 5) -> dict:
     sparse_embedding = embedding_service.get_sparse_embedding(query)
 
     # Hybrid Search
+    retrieval_mode = "hybrid"
     try:
         results = milvus_service.hybrid_search(dense_embedding, sparse_embedding, top_k * 2)
     except Exception:
+        retrieval_mode = "dense"
         results = milvus_service.dense_search(dense_embedding, top_k * 2)
 
     # rerank
@@ -134,7 +136,7 @@ def retrieve_documents(query: str, top_k: int = 5) -> dict:
 
     # 构建元数据
     meta = {
-        "retrieval_mode": "hybrid" if hasattr(milvus_service, 'sparse_embedding') else "dense",
+        "retrieval_mode": retrieval_mode,
         "candidate_k": len(results),
         "leaf_retrieve_level": LEAF_RETRIEVE_LEVEL,
         "auto_merge_enabled": auto_merge_enabled,

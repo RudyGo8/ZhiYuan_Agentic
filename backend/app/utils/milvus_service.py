@@ -37,6 +37,7 @@ class MilvusService:
             schema.add_field("text", DataType.VARCHAR, max_length=2000)
             schema.add_field("filename", DataType.VARCHAR, max_length=255)
             schema.add_field("file_type", DataType.VARCHAR, max_length=50)
+            schema.add_field("page_number", DataType.INT64)
             schema.add_field("chunk_id", DataType.VARCHAR, max_length=512)
             schema.add_field("parent_chunk_id", DataType.VARCHAR, max_length=512)
             schema.add_field("chunk_level", DataType.INT64)
@@ -67,7 +68,7 @@ class MilvusService:
         return self._get_client().delete(collection_name=self.collection_name, filter=filter_expr)
 
     def hybrid_search(self, dense_embedding: list[float], sparse_embedding: dict, top_k: int = 5) -> list[dict]:
-        output_fields = ["text", "filename", "file_type", "chunk_id", "parent_chunk_id", "chunk_level"]
+        output_fields = ["text", "filename", "file_type", "page_number", "chunk_id", "parent_chunk_id", "chunk_level"]
         
         dense_search = AnnSearchRequest(
             data=[dense_embedding],
@@ -100,7 +101,10 @@ class MilvusService:
                         "text": hit.get("text", ""),
                         "filename": hit.get("filename", ""),
                         "file_type": hit.get("file_type", ""),
+                        "page_number": hit.get("page_number"),
                         "chunk_id": hit.get("chunk_id", ""),
+                        "parent_chunk_id": hit.get("parent_chunk_id", ""),
+                        "chunk_level": hit.get("chunk_level"),
                         "score": hit.get("distance", 0.0)
                     })
             return formatted
@@ -115,7 +119,7 @@ class MilvusService:
             anns_field="dense_embedding",
             search_params={"metric_type": "IP", "params": {"ef": 64}},
             limit=top_k,
-            output_fields=["text", "filename", "file_type", "chunk_id", "parent_chunk_id", "chunk_level"],
+            output_fields=["text", "filename", "file_type", "page_number", "chunk_id", "parent_chunk_id", "chunk_level"],
         )
         
         formatted = []
@@ -127,13 +131,19 @@ class MilvusService:
                 text = entity.get("text", "") if isinstance(entity, dict) else ""
                 filename = entity.get("filename", "") if isinstance(entity, dict) else ""
                 file_type = entity.get("file_type", "") if isinstance(entity, dict) else ""
+                page_number = entity.get("page_number") if isinstance(entity, dict) else None
                 chunk_id = entity.get("chunk_id", "") if isinstance(entity, dict) else ""
+                parent_chunk_id = entity.get("parent_chunk_id", "") if isinstance(entity, dict) else ""
+                chunk_level = entity.get("chunk_level") if isinstance(entity, dict) else None
                 score = hit.get("distance", 0.0) if isinstance(hit, dict) else getattr(hit, 'distance', 0.0)
                 formatted.append({
                     "text": text,
                     "filename": filename,
                     "file_type": file_type,
+                    "page_number": page_number,
                     "chunk_id": chunk_id,
+                    "parent_chunk_id": parent_chunk_id,
+                    "chunk_level": chunk_level,
                     "score": score
                 })
         return formatted

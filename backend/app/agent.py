@@ -7,6 +7,10 @@ from langchain.agents import create_agent
 from langchain_core.messages import HumanMessage, AIMessage, AIMessageChunk, SystemMessage
 from app.tools import get_current_weather, search_knowledge_base, get_last_rag_context, reset_tool_call_guards, set_rag_step_queue
 from app.config import logger
+from app.mcp.agent_tools import get_enabled_mcp_tools
+from app.mcp.policy import reset_turn_policy, set_turn_policy
+from app.mcp.trace import get_mcp_trace, reset_mcp_trace
+from app.skills.router import build_skill_prompt, route_skill
 from datetime import datetime
 
 load_dotenv()
@@ -82,6 +86,7 @@ class ConversationStorage:
 
     def save(self, user_id: str, session_id: str, messages: list, metadata: dict = None, extra_message_data: list = None):
 
+        from app.cache import cache
         from app.database import SessionLocal
         from app.models.db_user import User
         from app.models.db_chat_session import ChatSession
@@ -125,6 +130,9 @@ class ConversationStorage:
 
             session.update_time = now
             db.commit()
+            # Invalidate caches after successful write to avoid stale reads.
+            cache.delete(self._messages_cache_key(user_id, session_id))
+            cache.delete(self._sessions_cache_key(user_id))
         finally:
             db.close()
 
@@ -256,7 +264,7 @@ class ConversationStorage:
             db.close()
 
 
-def create_agent_instance():
+def create_agent_instance(extra_tools: list | None = None):
     model = init_chat_model(
         model=MODEL,
         model_provider="openai",
@@ -266,14 +274,16 @@ def create_agent_instance():
         stream_usage=True,
     )
 
+    tools = [get_current_weather, search_knowledge_base] + (extra_tools or [])
     agent = create_agent(
         model=model,
-        tools=[get_current_weather, search_knowledge_base],
+        tools=tools,
         system_prompt=(
             "You are a helpful AI assistant named 知源 Assistant.You were developed by Rudy."
             "IMPORTANT: You must ALWAYS use tools to answer questions. "
             "For ANY question that might need factual information, documents, or knowledge base content, "
             "you MUST call search_knowledge_base tool first. "
+            "When the user needs latest status/change/alerts, you may call available MCP read-only tools. "
             "Only answer directly if the question is a simple greeting or casual conversation. "
             "After receiving search_knowledge_base result, use that information to answer. "
             "If no relevant documents found, say you don't have that information. "
@@ -285,6 +295,13 @@ def create_agent_instance():
 
 agent, model = create_agent_instance()
 storage = ConversationStorage()
+
+
+def rebuild_agent_with_external_tools() -> list[str]:
+    global agent
+    extra_tools = get_enabled_mcp_tools()
+    agent, _ = create_agent_instance(extra_tools=extra_tools)
+    return [getattr(item, "__name__", getattr(item, "name", "unknown")) for item in extra_tools]
 
 
 def summarize_old_messages(model, messages: list) -> str:
@@ -305,61 +322,75 @@ def summarize_old_messages(model, messages: list) -> str:
 
 def chat_with_agent(user_text: str, user_id: str = "default_user", session_id: str = "default_session"):
     messages = storage.load(user_id, session_id)
+    plan = route_skill(user_text)
+    set_turn_policy(plan.use_mcp, plan.mcp_sources)
+    reset_mcp_trace()
 
     get_last_rag_context(clear=True)
     reset_tool_call_guards()
 
-    if len(messages) > 50:
-        summary = summarize_old_messages(model, messages[:40])
+    try:
+        if len(messages) > 50:
+            summary = summarize_old_messages(model, messages[:40])
 
-        messages = [
-                       SystemMessage(content=f"之前的对话摘要：\n{summary}")
-                   ] + messages[40:]
+            messages = [
+                           SystemMessage(content=f"之前的对话摘要：\n{summary}")
+                       ] + messages[40:]
 
-    messages.append(HumanMessage(content=user_text))
+        skill_prompt = build_skill_prompt(user_text, plan)
+        messages.append(HumanMessage(content=skill_prompt))
 
-    result = agent.invoke(
-        {"messages": messages},
-        config={"recursion_limit": 8},
-    )
+        result = agent.invoke(
+            {"messages": messages},
+            config={"recursion_limit": 8},
+        )
 
-    response_content = ""
-    usage = None
-    if isinstance(result, dict):
-        if "output" in result:
-            response_content = result["output"]
-        elif "messages" in result and result["messages"]:
-            msg = result["messages"][-1]
-            response_content = getattr(msg, "content", str(msg))
-            usage = _extract_usage_from_message(msg)
+        response_content = ""
+        usage = None
+        if isinstance(result, dict):
+            if "output" in result:
+                response_content = result["output"]
+            elif "messages" in result and result["messages"]:
+                msg = result["messages"][-1]
+                response_content = getattr(msg, "content", str(msg))
+                usage = _extract_usage_from_message(msg)
+            else:
+                response_content = str(result)
+        elif hasattr(result, "content"):
+            response_content = result.content
+            usage = _extract_usage_from_message(result)
         else:
             response_content = str(result)
-    elif hasattr(result, "content"):
-        response_content = result.content
-        usage = _extract_usage_from_message(result)
-    else:
-        response_content = str(result)
 
-    messages.append(AIMessage(content=response_content))
+        messages.append(AIMessage(content=response_content))
 
-    rag_context = get_last_rag_context(clear=True)
-    rag_trace = rag_context.get("rag_trace") if rag_context else None
-    if not isinstance(rag_trace, dict):
-        rag_trace = {}
-    rag_trace["token_usage"] = _estimate_cost(usage)
+        rag_context = get_last_rag_context(clear=True)
+        rag_trace = rag_context.get("rag_trace") if rag_context else None
+        if not isinstance(rag_trace, dict):
+            rag_trace = {}
+        mcp_calls = get_mcp_trace(clear=True)
+        rag_trace["token_usage"] = _estimate_cost(usage)
+        rag_trace["skill"] = plan.to_trace()
+        rag_trace["mcp_calls"] = mcp_calls
+        rag_trace["mcp_used"] = bool(mcp_calls)
 
-    extra_message_data = [None] * (len(messages) - 1) + [{"rag_trace": rag_trace}]
-    storage.save(user_id, session_id, messages, extra_message_data=extra_message_data)
+        extra_message_data = [None] * (len(messages) - 1) + [{"rag_trace": rag_trace}]
+        storage.save(user_id, session_id, messages, extra_message_data=extra_message_data)
 
-    return {
-        "response": response_content,
-        "rag_trace": rag_trace,
-    }
+        return {
+            "response": response_content,
+            "rag_trace": rag_trace,
+        }
+    finally:
+        reset_turn_policy()
 
 
+# SSE流式输出
 async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", session_id: str = "default_session"):
-    """Handle user message with agent and stream SSE events."""
     messages = storage.load(user_id, session_id)
+    plan = route_skill(user_text)
+    set_turn_policy(plan.use_mcp, plan.mcp_sources)
+    reset_mcp_trace()
 
     get_last_rag_context(clear=True)
     reset_tool_call_guards()
@@ -376,7 +407,8 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
         summary = summarize_old_messages(model, messages[:40])
         messages = [SystemMessage(content=f"之前的对话摘要：\n{summary}")] + messages[40:]
 
-    messages.append(HumanMessage(content=user_text))
+    skill_prompt = build_skill_prompt(user_text, plan)
+    messages.append(HumanMessage(content=skill_prompt))
 
     full_response = ""
     stream_usage = None
@@ -436,12 +468,17 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
         set_rag_step_queue(None)
         if not agent_task.done():
             agent_task.cancel()
+        reset_turn_policy()
 
     rag_context = get_last_rag_context(clear=True)
     rag_trace = rag_context.get("rag_trace") if rag_context else None
     if not isinstance(rag_trace, dict):
         rag_trace = {}
+    mcp_calls = get_mcp_trace(clear=True)
     rag_trace["token_usage"] = _estimate_cost(stream_usage)
+    rag_trace["skill"] = plan.to_trace()
+    rag_trace["mcp_calls"] = mcp_calls
+    rag_trace["mcp_used"] = bool(mcp_calls)
 
     tool_used = bool(rag_trace.get("tool_used")) if isinstance(rag_trace, dict) else False
     tool_name = rag_trace.get("tool_name") if isinstance(rag_trace, dict) else None
