@@ -6,10 +6,20 @@
 
 from pathlib import Path
 
+if __name__ == "__main__" and __package__ is None:
+    import sys
+
+    # Support running this file directly: `python backend/app/main.py`
+    # and avoid shadowing the third-party `mcp` package with local `app/mcp`.
+    backend_dir = Path(__file__).resolve().parents[1]
+    app_dir = Path(__file__).resolve().parent
+    sys.path = [p for p in sys.path if Path(p).resolve() != app_dir]
+    sys.path.insert(0, str(backend_dir))
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-
+from contextlib import asynccontextmanager
 from app.agent import rebuild_agent_with_external_tools
 from app.config import logger
 from app.database import init_db
@@ -18,25 +28,21 @@ from app.routes.common.auth import router_r1 as auth_router_r1
 from app.routes.common.chat import router_r1 as chat_router_r1
 from app.routes.common.document import router_r1 as document_router_r1
 
-# 前端
+# 前端打包
 FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
 FRONTEND_DIST_DIR = FRONTEND_DIR / "dist"
 
-app = FastAPI(title="RAG Agent API")
 
-
-@app.on_event("startup")
-async def startup_event():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     init_db()
     await mcp_client_manager.initialize()
     enabled_tools = rebuild_agent_with_external_tools()
     logger.info("Agent external toolset loaded: %s", enabled_tools)
+    yield
 
 
-@app.on_event("shutdown")
-async def shutdown_event():
-    return
-
+app = FastAPI(title="RAG Agent API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

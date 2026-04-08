@@ -221,7 +221,7 @@
                 <summary>检索过程</summary>
                 <div class="reasoning-content">
                   <div class="trace-line">
-                    工具：{{ msg.ragTrace.tool_used ? msg.ragTrace.tool_name : '未使用' }}
+                    RAG工具：{{ msg.ragTrace.tool_used ? msg.ragTrace.tool_name : '未使用' }}
                   </div>
                   <div v-if="msg.ragTrace.retrieval_stage" class="trace-line">
                     检索阶段：{{ msg.ragTrace.retrieval_stage }}
@@ -233,7 +233,7 @@
                     Skill：{{ msg.ragTrace.skill.display_name }}
                   </div>
                   <div v-if="Array.isArray(msg.ragTrace.mcp_calls)" class="trace-line">
-                    MCP 调用：{{ msg.ragTrace.mcp_calls.length }} 次
+                    MCP 调用：{{ formatMcpCallSummary(msg.ragTrace) }}
                   </div>
                 </div>
               </details>
@@ -306,6 +306,59 @@ export default {
       return renderMarkdown(text);
     },
     escapeHtml,
+    appendRagStep(message, step) {
+      if (!message || !Array.isArray(message.ragSteps) || !step || typeof step !== 'object') {
+        return;
+      }
+
+      const icon = step.icon || '';
+      const label = step.label || '';
+      const detail = step.detail || '';
+      const signature = `${icon}|${label}|${detail}`;
+      const isSourceStep = label.includes('查询外部来源');
+
+      if (isSourceStep) {
+        // Hide intermediate source-query progress; keep final MCP summary in trace only.
+        return;
+      }
+
+      const last = message.ragSteps.length ? message.ragSteps[message.ragSteps.length - 1] : null;
+      if (last) {
+        const li = last.icon || '';
+        const ll = last.label || '';
+        const ld = last.detail || '';
+        if (`${li}|${ll}|${ld}` === signature) return;
+      }
+
+      message.ragSteps.push(step);
+    },
+    formatMcpCallSummary(ragTrace) {
+      const calls = Array.isArray(ragTrace?.mcp_calls) ? ragTrace.mcp_calls : [];
+      const successCalls = calls.filter((item) => item && item.success === true);
+      const total = successCalls.length;
+      if (total === 0) {
+        return '未调用';
+      }
+
+      const sourceCounter = new Map();
+      for (const item of successCalls) {
+        const source = (item?.server_name || '').trim();
+        if (!source) continue;
+        sourceCounter.set(source, (sourceCounter.get(source) || 0) + 1);
+      }
+
+      let sourceText = '';
+      if (sourceCounter.size > 0) {
+        sourceText = Array.from(sourceCounter.entries())
+          .map(([source, count]) => `${source}${count > 1 ? `x${count}` : ''}`)
+          .join('、');
+      } else {
+        const summarySources = Array.isArray(ragTrace?.mcp_summary?.sources) ? ragTrace.mcp_summary.sources : [];
+        sourceText = summarySources.length ? summarySources.join('、') : '未记录来源';
+      }
+
+      return `${sourceText}（${total} 次）`;
+    },
     applyTheme() {
       document.body.classList.toggle('theme-dark', this.isDarkMode);
     },
@@ -469,7 +522,7 @@ export default {
               } else if (data.type === 'trace') {
                 this.messages[botMsgIdx].ragTrace = data.rag_trace;
               } else if (data.type === 'rag_step') {
-                this.messages[botMsgIdx].ragSteps.push(data.step);
+                this.appendRagStep(this.messages[botMsgIdx], data.step);
               } else if (data.type === 'error') {
                 this.messages[botMsgIdx].isThinking = false;
                 const errorMsg = data.error || data.content || '未知错误';

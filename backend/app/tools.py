@@ -1,4 +1,5 @@
-from typing import Optional
+from contextvars import ContextVar
+from typing import Any, Optional
 import os
 import requests
 from dotenv import load_dotenv
@@ -14,54 +15,51 @@ WEATHER_API = os.getenv("WEATHER_API")
 WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 GEOCODE_API = os.getenv("GEOCODE_API")
 
-_LAST_RAG_CONTEXT = None
-_KNOWLEDGE_TOOL_CALLS_THIS_TURN = 0
-_RAG_STEP_QUEUE = None
-_RAG_STEP_LOOP = None
+_LAST_RAG_CONTEXT: ContextVar[Optional[dict]] = ContextVar("_LAST_RAG_CONTEXT", default=None)
+_KNOWLEDGE_TOOL_CALLS_THIS_TURN: ContextVar[int] = ContextVar("_KNOWLEDGE_TOOL_CALLS_THIS_TURN", default=0)
+_RAG_STEP_QUEUE: ContextVar[Optional[Any]] = ContextVar("_RAG_STEP_QUEUE", default=None)
+_RAG_STEP_LOOP: ContextVar[Optional[Any]] = ContextVar("_RAG_STEP_LOOP", default=None)
 
 
 def _set_last_rag_context(context: dict):
-    """存入"""
-    global _LAST_RAG_CONTEXT
-    _LAST_RAG_CONTEXT = context
+    _LAST_RAG_CONTEXT.set(context)
 
 
 def get_last_rag_context(clear: bool = True) -> Optional[dict]:
-    """读取缓存"""
-    global _LAST_RAG_CONTEXT
-    context = _LAST_RAG_CONTEXT
+    context = _LAST_RAG_CONTEXT.get()
     if clear:
-        _LAST_RAG_CONTEXT = None
+        _LAST_RAG_CONTEXT.set(None)
     return context
 
 
 def reset_tool_call_guards():
-    global _KNOWLEDGE_TOOL_CALLS_THIS_TURN
-    _KNOWLEDGE_TOOL_CALLS_THIS_TURN = 0
+    _KNOWLEDGE_TOOL_CALLS_THIS_TURN.set(0)
 
 
 def set_rag_step_queue(queue):
-    """队列"""
-    global _RAG_STEP_QUEUE, _RAG_STEP_LOOP
-    _RAG_STEP_QUEUE = queue
+    _RAG_STEP_QUEUE.set(queue)
     if queue:
         import asyncio
         try:
-            _RAG_STEP_LOOP = asyncio.get_running_loop()
+            loop = asyncio.get_running_loop()
         except RuntimeError:
-            _RAG_STEP_LOOP = asyncio.get_event_loop()
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = None
+        _RAG_STEP_LOOP.set(loop)
     else:
-        _RAG_STEP_LOOP = None
+        _RAG_STEP_LOOP.set(None)
 
 
 def emit_rag_step(icon: str, label: str, detail: str = ""):
-    """可视化"""
-    global _RAG_STEP_QUEUE, _RAG_STEP_LOOP
-    if _RAG_STEP_QUEUE is not None and _RAG_STEP_LOOP is not None:
+    queue = _RAG_STEP_QUEUE.get()
+    loop = _RAG_STEP_LOOP.get()
+    if queue is not None and loop is not None:
         step = {"icon": icon, "label": label, "detail": detail}
         try:
-            if not _RAG_STEP_LOOP.is_closed():
-                _RAG_STEP_LOOP.call_soon_threadsafe(_RAG_STEP_QUEUE.put_nowait, step)
+            if not loop.is_closed():
+                loop.call_soon_threadsafe(queue.put_nowait, step)
         except Exception:
             pass
 
@@ -185,13 +183,13 @@ def get_current_weather(location: str, extensions: Optional[str] = "base") -> st
 @tool("search_knowledge_base")
 def search_knowledge_base(query: str) -> str:
     """查询知识库"""
-    global _KNOWLEDGE_TOOL_CALLS_THIS_TURN
-    if _KNOWLEDGE_TOOL_CALLS_THIS_TURN >= 1:
+    calls_this_turn = _KNOWLEDGE_TOOL_CALLS_THIS_TURN.get()
+    if calls_this_turn >= 1:
         return (
             "TOOL_CALL_LIMIT_REACHED: search_knowledge_base has already been called once in this turn. "
             "Use the existing retrieval result and provide the final answer directly."
         )
-    _KNOWLEDGE_TOOL_CALLS_THIS_TURN += 1
+    _KNOWLEDGE_TOOL_CALLS_THIS_TURN.set(calls_this_turn + 1)
 
     from app.rag_pipeline import run_rag_graph
 

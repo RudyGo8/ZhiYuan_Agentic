@@ -5,9 +5,17 @@ import asyncio
 from langchain.chat_models import init_chat_model
 from langchain.agents import create_agent
 from langchain_core.messages import HumanMessage, AIMessage, AIMessageChunk, SystemMessage
-from app.tools import get_current_weather, search_knowledge_base, get_last_rag_context, reset_tool_call_guards, set_rag_step_queue
+from app.tools import (
+    emit_rag_step,
+    get_current_weather,
+    search_knowledge_base,
+    get_last_rag_context,
+    reset_tool_call_guards,
+    set_rag_step_queue,
+)
 from app.config import logger
 from app.mcp.agent_tools import get_enabled_mcp_tools
+from app.mcp.client_manager import mcp_client_manager
 from app.mcp.policy import reset_turn_policy, set_turn_policy
 from app.mcp.trace import get_mcp_trace, reset_mcp_trace
 from app.skills.router import build_skill_prompt, route_skill
@@ -21,6 +29,30 @@ BASE_URL = os.getenv("BASE_URL")
 MODEL_INPUT_PRICE_PER_1K = float(os.getenv("MODEL_INPUT_PRICE_PER_1K", "0"))
 MODEL_OUTPUT_PRICE_PER_1K = float(os.getenv("MODEL_OUTPUT_PRICE_PER_1K", "0"))
 COST_CURRENCY = os.getenv("COST_CURRENCY", "CNY")
+AGENT_RECURSION_LIMIT = max(8, int(os.getenv("AGENT_RECURSION_LIMIT", "16")))
+MCP_PREFETCH_MAX_SOURCES = max(1, int(os.getenv("MCP_PREFETCH_MAX_SOURCES", "2")))
+MCP_PREFETCH_MIN_QUERY_CHARS = max(1, int(os.getenv("MCP_PREFETCH_MIN_QUERY_CHARS", "2")))
+
+MCP_SOURCE_HINTS = {
+    "monitor": (
+        "故障", "报错", "错误", "异常", "告警", "超时", "状态", "可用性", "延迟", "监控",
+        "error", "incident", "alert", "latency", "status", "monitor", "availability",
+    ),
+    "git": (
+        "代码", "提交", "变更", "上线", "发布", "回滚", "分支", "pr", "commit",
+        "git", "github", "gitlab", "merge", "release",
+    ),
+    "docs": (
+        "文档", "方案", "设计", "说明", "wiki", "纪要", "手册", "readme", "spec", "doc", "document",
+    ),
+}
+
+MCP_SKILL_SOURCE_PRIORITIES = {
+    "troubleshooting": ("monitor", "git"),
+    "test_analysis": ("git", "docs"),
+    "doc_analysis": ("docs",),
+    "default_rag": ("monitor", "docs"),
+}
 
 
 def _normalize_usage(usage: dict | None) -> dict | None:
@@ -57,6 +89,26 @@ def _estimate_cost(usage: dict | None) -> dict:
     return {
         "model": MODEL,
         "usage": usage,
+    }
+
+
+def _build_mcp_summary(mcp_calls: list[dict] | None) -> dict:
+    calls = mcp_calls or []
+    total = len(calls)
+    success = sum(1 for item in calls if isinstance(item, dict) and item.get("success") is True)
+    failed = max(0, total - success)
+    sources = sorted(
+        {
+            str(item.get("server_name")).strip()
+            for item in calls
+            if isinstance(item, dict) and item.get("server_name")
+        }
+    )
+    return {
+        "total": total,
+        "success": success,
+        "failed": failed,
+        "sources": sources,
     }
 
 
@@ -280,14 +332,13 @@ def create_agent_instance(extra_tools: list | None = None):
         tools=tools,
         system_prompt=(
             "You are a helpful AI assistant named 知源 Assistant.You were developed by Rudy."
-            "IMPORTANT: You must ALWAYS use tools to answer questions. "
-            "For ANY question that might need factual information, documents, or knowledge base content, "
-            "you MUST call search_knowledge_base tool first. "
+            "Use tools when needed for factual and grounded answers. "
+            "For questions related to documents or knowledge base, call search_knowledge_base first, but at most once per turn. "
+            "If search_knowledge_base returns TOOL_CALL_LIMIT_REACHED or no relevant documents, do not retry it; proceed with existing evidence. "
             "When the user needs latest status/change/alerts, you may call available MCP read-only tools. "
-            "Only answer directly if the question is a simple greeting or casual conversation. "
-            "After receiving search_knowledge_base result, use that information to answer. "
-            "If no relevant documents found, say you don't have that information. "
-            "For weather questions, use get_current_weather tool."
+            "Avoid repeatedly calling the same MCP source unless new evidence is required. "
+            "For weather questions, use get_current_weather tool. "
+            "If evidence is insufficient, explicitly state limitations."
         ),
     )
     return agent, model
@@ -320,6 +371,70 @@ def summarize_old_messages(model, messages: list) -> str:
     return summary
 
 
+def _select_mcp_prefetch_sources(user_text: str, plan) -> list[str]:
+    query = (user_text or "").strip().lower()
+    configured_sources = [
+        str(source).strip().lower()
+        for source in (getattr(plan, "mcp_sources", []) or [])
+        if str(source).strip()
+    ]
+    if not configured_sources:
+        return []
+
+    if len(query) < MCP_PREFETCH_MIN_QUERY_CHARS:
+        return configured_sources[:1]
+
+    priority_sources = set(MCP_SKILL_SOURCE_PRIORITIES.get(getattr(plan, "name", ""), ()))
+    scored: list[tuple[int, int, str]] = []
+    for idx, source in enumerate(configured_sources):
+        hints = MCP_SOURCE_HINTS.get(source, ())
+        score = sum(1 for kw in hints if kw in query)
+        if source in priority_sources:
+            score += 1
+        scored.append((score, -idx, source))
+
+    scored.sort(reverse=True)
+    selected = [source for score, _, source in scored if score > 0]
+    if not selected:
+        prioritized = [source for source in MCP_SKILL_SOURCE_PRIORITIES.get(getattr(plan, "name", ""), ()) if source in configured_sources]
+        selected = prioritized or configured_sources[:1]
+    return selected[:MCP_PREFETCH_MAX_SOURCES]
+
+
+def _prefetch_mcp_context(user_text: str, plan) -> tuple[str, list[str]]:
+    """
+    Prefetch MCP evidence for skill-mode turns.
+    This avoids "template says queried MCP" while actual MCP calls are zero.
+    """
+    if not getattr(plan, "use_mcp", False):
+        return "", []
+    sources = _select_mcp_prefetch_sources(user_text, plan)
+    if not sources:
+        return "", []
+    if not mcp_client_manager.enabled:
+        return "", sources
+
+    query = (user_text or "").strip()
+    all_items: list[dict] = []
+    for source in sources:
+        emit_rag_step("🔎", f"查询外部来源: {source}", query[:80])
+        all_items.extend(mcp_client_manager.query_source(source, query))
+
+    if not all_items:
+        return "【外部实时证据】未获取到可用结果。若结论依赖实时数据，请明确说明证据不足。", sources
+
+    lines = ["【外部实时证据】"]
+    for idx, item in enumerate(all_items[:8], 1):
+        source = item.get("source", "unknown")
+        tool_name = item.get("tool_name", "unknown")
+        summary = (item.get("summary") or "").replace("\n", " ").strip()
+        if len(summary) > 280:
+            summary = summary[:280] + "..."
+        lines.append(f"{idx}. source={source}, tool={tool_name}, summary={summary}")
+    lines.append("请优先基于以上证据输出结论；若证据已足够，请不要重复调用相同外部来源。")
+    return "\n".join(lines), sources
+
+
 def chat_with_agent(user_text: str, user_id: str = "default_user", session_id: str = "default_session"):
     messages = storage.load(user_id, session_id)
     plan = route_skill(user_text)
@@ -338,11 +453,25 @@ def chat_with_agent(user_text: str, user_id: str = "default_user", session_id: s
                        ] + messages[40:]
 
         skill_prompt = build_skill_prompt(user_text, plan)
+        prefetched_sources: list[str] = []
+        try:
+            prefetched_context, prefetched_sources = _prefetch_mcp_context(user_text, plan)
+        except Exception as exc:
+            logger.warning("mcp_context_prefetch_failed user_id=%s err=%s", user_id, exc)
+            prefetched_context = ""
+            prefetched_sources = []
+        if prefetched_context:
+            skill_prompt = f"{skill_prompt}\n\n{prefetched_context}"
+        if getattr(plan, "use_mcp", False):
+            skill_prompt = (
+                f"{skill_prompt}\n\n"
+                "执行约束：优先调用一次 search_knowledge_base；若提示已达调用上限或无相关结果，不要重复调用，直接基于现有证据给结论。"
+            )
         messages.append(HumanMessage(content=skill_prompt))
 
         result = agent.invoke(
             {"messages": messages},
-            config={"recursion_limit": 8},
+            config={"recursion_limit": AGENT_RECURSION_LIMIT},
         )
 
         response_content = ""
@@ -372,6 +501,8 @@ def chat_with_agent(user_text: str, user_id: str = "default_user", session_id: s
         rag_trace["token_usage"] = _estimate_cost(usage)
         rag_trace["skill"] = plan.to_trace()
         rag_trace["mcp_calls"] = mcp_calls
+        rag_trace["mcp_summary"] = _build_mcp_summary(mcp_calls)
+        rag_trace["mcp_prefetch_sources"] = prefetched_sources
         rag_trace["mcp_used"] = bool(mcp_calls)
 
         extra_message_data = [None] * (len(messages) - 1) + [{"rag_trace": rag_trace}]
@@ -408,6 +539,20 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
         messages = [SystemMessage(content=f"之前的对话摘要：\n{summary}")] + messages[40:]
 
     skill_prompt = build_skill_prompt(user_text, plan)
+    prefetched_sources: list[str] = []
+    try:
+        prefetched_context, prefetched_sources = _prefetch_mcp_context(user_text, plan)
+    except Exception as exc:
+        logger.warning("mcp_context_prefetch_failed user_id=%s err=%s", user_id, exc)
+        prefetched_context = ""
+        prefetched_sources = []
+    if prefetched_context:
+        skill_prompt = f"{skill_prompt}\n\n{prefetched_context}"
+    if getattr(plan, "use_mcp", False):
+        skill_prompt = (
+            f"{skill_prompt}\n\n"
+            "执行约束：优先调用一次 search_knowledge_base；若提示已达调用上限或无相关结果，不要重复调用，直接基于现有证据给结论。"
+        )
     messages.append(HumanMessage(content=skill_prompt))
 
     full_response = ""
@@ -417,9 +562,9 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
         nonlocal full_response, stream_usage
         try:
             async for msg, metadata in agent.astream(
-                    {"messages": messages},
-                    stream_mode="messages",
-                    config={"recursion_limit": 8},
+                {"messages": messages},
+                stream_mode="messages",
+                config={"recursion_limit": AGENT_RECURSION_LIMIT},
             ):
                 if not isinstance(msg, AIMessageChunk):
                     continue
@@ -478,6 +623,8 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
     rag_trace["token_usage"] = _estimate_cost(stream_usage)
     rag_trace["skill"] = plan.to_trace()
     rag_trace["mcp_calls"] = mcp_calls
+    rag_trace["mcp_summary"] = _build_mcp_summary(mcp_calls)
+    rag_trace["mcp_prefetch_sources"] = prefetched_sources
     rag_trace["mcp_used"] = bool(mcp_calls)
 
     tool_used = bool(rag_trace.get("tool_used")) if isinstance(rag_trace, dict) else False
