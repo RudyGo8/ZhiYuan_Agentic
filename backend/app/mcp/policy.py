@@ -23,21 +23,27 @@ READONLY_DENY_KEYWORDS = (
 
 SOURCE_ALIASES = {
     "git": ("git", "github", "gitlab", "repo", "commit", "pr"),
-    "db": ("db", "database", "mysql", "postgres", "schema", "ddl", "table", "column", "index"),
-    "log": ("log", "logs", "error", "traceback", "stack", "filelog"),
+    "mysql": ("mysql", "db", "database", "postgres", "schema", "ddl", "table", "column", "index"),
 }
 
 _MCP_ALLOWED_THIS_TURN: ContextVar[bool] = ContextVar("_MCP_ALLOWED_THIS_TURN", default=False)
 _MCP_ALLOWED_SOURCES: ContextVar[set[str]] = ContextVar("_MCP_ALLOWED_SOURCES", default=set())
 
 
+def _normalize_source_name(source: str) -> str:
+    value = (source or "").strip().lower()
+    if value == "db":
+        return "mysql"
+    return value
+
+
 def _normalized_set(value: str) -> set[str]:
-    return {item.strip().lower() for item in value.split(",") if item.strip()}
+    return {_normalize_source_name(item) for item in value.split(",") if item.strip()}
 
 
 def get_allowed_sources_from_config() -> set[str]:
     values = _normalized_set(MCP_SOURCE_ALLOWLIST)
-    return values or {"git", "db", "log"}
+    return values or {"git", "mysql"}
 
 
 def get_allowlisted_tool_names() -> set[str]:
@@ -76,7 +82,7 @@ def allow_tool(tool_name: str, description: str = "") -> tuple[bool, str | None]
 
 def set_turn_policy(allowed: bool, allowed_sources: list[str] | None = None) -> None:
     _MCP_ALLOWED_THIS_TURN.set(bool(allowed))
-    source_set = {item.strip().lower() for item in (allowed_sources or []) if item and item.strip()}
+    source_set = {_normalize_source_name(item) for item in (allowed_sources or []) if item and item.strip()}
     _MCP_ALLOWED_SOURCES.set(source_set)
 
 
@@ -90,7 +96,7 @@ def can_call_source(source: str) -> bool:
         return False
     configured = get_allowed_sources_from_config()
     per_turn = _MCP_ALLOWED_SOURCES.get()
-    source = (source or "").strip().lower()
+    source = _normalize_source_name(source)
     if source not in configured:
         return False
     if per_turn and source not in per_turn:

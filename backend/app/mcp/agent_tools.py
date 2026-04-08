@@ -28,20 +28,20 @@ def mcp_search_git(query: str) -> str:
     return _search_source("git", query)
 
 
+def mcp_search_mysql(query: str) -> str:
+    """通过 MCP 工具查询只读 MySQL 结构信息。"""
+    return _search_source("mysql", query)
+
+
 def mcp_search_db(query: str) -> str:
-    """Search read-only database schema context via MCP tools."""
-    return _search_source("db", query)
-
-
-def mcp_search_log(query: str) -> str:
-    """Search read-only log context via MCP tools."""
-    return _search_source("log", query)
+    """兼容旧 source 名 db，内部映射到 mysql。"""
+    return _search_source("mysql", query)
 
 
 SOURCE_TO_TOOL = {
     "git": mcp_search_git,
+    "mysql": mcp_search_mysql,
     "db": mcp_search_db,
-    "log": mcp_search_log,
 }
 
 

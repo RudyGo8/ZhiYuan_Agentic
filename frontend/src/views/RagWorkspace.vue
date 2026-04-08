@@ -318,7 +318,7 @@ export default {
       const isSourceStep = label.includes('查询外部来源');
 
       if (isSourceStep) {
-        // Hide intermediate source-query progress; keep final MCP summary in trace only.
+        // 隐藏中间态的外部来源查询进度，仅在 trace 中展示最终 MCP 汇总。
         return;
       }
 

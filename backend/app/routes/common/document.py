@@ -32,7 +32,7 @@ def _sanitize_filename(raw_name: str) -> str:
     if not name:
         raise HTTPException(status_code=400, detail="文件名不能为空")
     safe_name = Path(name).name.strip()
-    # Reject path-like names to prevent traversal.
+    # 拒绝路径型文件名，防止目录穿越。
     if safe_name != name or safe_name in {".", ".."}:
         raise HTTPException(status_code=400, detail="非法文件名")
     return safe_name

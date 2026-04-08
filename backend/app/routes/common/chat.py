@@ -5,7 +5,6 @@
 '''
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.agent import chat_with_agent, chat_with_agent_stream, storage
 from app.models.db_user import User
 from app.schemas.auth import (
     ChatRequest,
@@ -16,6 +15,7 @@ from app.schemas.auth import (
     SessionListResponse,
     SessionMessagesResponse,
 )
+from app.services.chat_service import chat_service
 from app.utils.auth_utils import get_current_user
 from fastapi.responses import StreamingResponse
 
@@ -29,7 +29,7 @@ router_r1 = APIRouter(
 async def chat_endpoint(request: ChatRequest, current_user: User = Depends(get_current_user)):
     """非流式输出"""
     session_id = request.session_id or "default_session"
-    result = chat_with_agent(request.message, current_user.username, session_id)
+    result = chat_service.chat(request.message, current_user.username, session_id)
     return ChatResponse(**result)
 
 
@@ -38,7 +38,7 @@ async def chat_stream_endpoint(request: ChatRequest, current_user: User = Depend
     """SSE 流式输出"""
     session_id = request.session_id or "default_session"
     return StreamingResponse(
-        chat_with_agent_stream(request.message, current_user.username, session_id),
+        chat_service.stream_chat(request.message, current_user.username, session_id),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache, no-store, must-revalidate",
@@ -50,19 +50,19 @@ async def chat_stream_endpoint(request: ChatRequest, current_user: User = Depend
 
 @router_r1.get("/sessions/{session_id}", response_model=SessionMessagesResponse)
 async def get_session_messages(session_id: str, current_user: User = Depends(get_current_user)):
-    messages = storage.get_session_messages(current_user.username, session_id)
+    messages = chat_service.get_session_messages(current_user.username, session_id)
     return SessionMessagesResponse(messages=[MessageInfo(**msg) for msg in messages])
 
 
 @router_r1.get("/sessions", response_model=SessionListResponse)
 async def list_sessions(current_user: User = Depends(get_current_user)):
-    sessions = storage.list_session_infos(current_user.username)
+    sessions = chat_service.get_session_list(current_user.username)
     return SessionListResponse(sessions=[SessionInfo(**s) for s in sessions])
 
 
 @router_r1.delete("/sessions/{session_id}", response_model=SessionDeleteResponse)
 async def delete_session(session_id: str, current_user: User = Depends(get_current_user)):
-    deleted = storage.delete_session(current_user.username, session_id)
+    deleted = chat_service.delete_session(current_user.username, session_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="会话不存在")
     return SessionDeleteResponse(session_id=session_id, message="成功删除会话")

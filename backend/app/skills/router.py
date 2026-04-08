@@ -1,18 +1,8 @@
 import re
 
 from app.skills.base import SkillPlan
-from app.skills.registry import build_db_schema_plan, build_default_plan
+from app.skills.registry import build_default_plan, build_plan_from_definition, load_skill_definitions
 
-DB_KEYWORDS = (
-    "数据库", "表", "字段", "列", "索引", "外键", "ddl", "schema", "sql", "mysql", "postgres",
-    "database", "table", "field", "column", "columns", "index",
-)
-GIT_KEYWORDS = (
-    "提交", "变更", "仓库", "分支", "pr", "commit", "github", "gitlab", "repo",
-)
-LOG_KEYWORDS = (
-    "日志", "报错", "错误", "异常", "堆栈", "traceback", "error", "log",
-)
 REALTIME_KEYWORDS = (
     "最新", "当前", "最近", "今天", "实时", "latest", "current", "recent", "today",
 )
@@ -32,18 +22,8 @@ def _contains_any(text: str, keywords: tuple[str, ...]) -> bool:
     return any(_contains_keyword(text, keyword) for keyword in keywords)
 
 
-def _pick_mcp_sources(text: str) -> list[str]:
-    sources: list[str] = []
-    if _contains_any(text, DB_KEYWORDS):
-        sources.append("db")
-    if _contains_any(text, GIT_KEYWORDS):
-        sources.append("git")
-    if _contains_any(text, LOG_KEYWORDS):
-        sources.append("log")
-
-    if not sources and _contains_any(text, REALTIME_KEYWORDS):
-        sources.append("git")
-    return sources
+def _score_keywords(text: str, keywords: list[str]) -> int:
+    return sum(1 for keyword in keywords if _contains_keyword(text, keyword))
 
 
 def route_skill(query: str) -> SkillPlan:
@@ -51,11 +31,26 @@ def route_skill(query: str) -> SkillPlan:
     if not text:
         return build_default_plan()
 
-    if _contains_any(text, DB_KEYWORDS):
-        return build_db_schema_plan(use_mcp=True)
+    skill_definitions = load_skill_definitions()
+    best_match = None
+    best_rank = (-1, -1)
 
-    mcp_sources = _pick_mcp_sources(text)
-    return build_default_plan(use_mcp=bool(mcp_sources), mcp_sources=mcp_sources)
+    for definition in skill_definitions:
+        score = _score_keywords(text, definition.keywords)
+        if score <= 0:
+            continue
+        rank = (score, definition.priority)
+        if rank > best_rank:
+            best_rank = rank
+            best_match = definition
+
+    if best_match is not None:
+        return build_plan_from_definition(best_match)
+
+    if _contains_any(text, REALTIME_KEYWORDS):
+        return build_default_plan(use_mcp=True, mcp_sources=["git"])
+
+    return build_default_plan()
 
 
 def build_skill_prompt(user_query: str, plan: SkillPlan) -> str:

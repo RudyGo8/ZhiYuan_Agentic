@@ -18,7 +18,7 @@ from app.mcp.trace import append_mcp_trace, new_mcp_call
 _MCP_IMPORT_ERROR: str | None = None
 try:
     from langchain_mcp_adapters.client import MultiServerMCPClient
-except Exception:  # pragma: no cover - optional dependency
+except Exception:  # pragma: no cover - 可选依赖
     MultiServerMCPClient = None
     _MCP_IMPORT_ERROR = traceback.format_exc()
 
@@ -89,7 +89,7 @@ class MCPClientManager:
                 client = MultiServerMCPClient({server_name: server_cfg})
                 tools = await client.get_tools()
                 raw_tools.extend(tools)
-            except Exception as exc:  # pragma: no cover - external integration
+            except Exception as exc:  # pragma: no cover - 外部集成异常
                 failed_servers[server_name] = str(exc)
                 logger.warning("MCP server init failed: server=%s err=%s", server_name, exc)
 
@@ -113,11 +113,13 @@ class MCPClientManager:
 
     def query_source(self, source: str, query: str, max_tools: int | None = None) -> list[dict[str, Any]]:
         source = (source or "").strip().lower()
+        if source == "db":
+            source = "mysql"
         query = (query or "").strip()
         entries = self._registry.get(source, [])
         if not query:
             return []
-        if (not self._enabled or not entries) and source == "db":
+        if (not self._enabled or not entries) and source == "mysql":
             http_results = self._query_db_http_fallback(query)
             if http_results:
                 return http_results
@@ -204,7 +206,7 @@ class MCPClientManager:
             duration_ms = int((time.perf_counter() - start) * 1000)
             append_mcp_trace(
                 new_mcp_call(
-                    server_name="db",
+                    server_name="mysql",
                     tool_name="local_db_schema_fallback",
                     query=query,
                     success=True,
@@ -213,12 +215,12 @@ class MCPClientManager:
                     error=None,
                 )
             )
-            return [{"source": "db", "tool_name": "local_db_schema_fallback", "summary": summary}]
+            return [{"source": "mysql", "tool_name": "local_db_schema_fallback", "summary": summary}]
         except Exception as exc:
             duration_ms = int((time.perf_counter() - start) * 1000)
             append_mcp_trace(
                 new_mcp_call(
-                    server_name="db",
+                    server_name="mysql",
                     tool_name="local_db_schema_fallback",
                     query=query,
                     success=False,
@@ -271,7 +273,7 @@ class MCPClientManager:
         duration_ms = int((time.perf_counter() - start) * 1000)
         append_mcp_trace(
             new_mcp_call(
-                server_name="db",
+                server_name="mysql",
                 tool_name="db_http_query",
                 query=query,
                 success=bool(summary) and error is None,
@@ -281,7 +283,7 @@ class MCPClientManager:
             )
         )
         if summary and error is None:
-            return [{"source": "db", "tool_name": "db_http_query", "summary": summary}]
+            return [{"source": "mysql", "tool_name": "db_http_query", "summary": summary}]
         return []
 
     @staticmethod
@@ -427,7 +429,7 @@ class MCPClientManager:
         def _runner() -> None:
             try:
                 result["value"] = MCPClientManager._invoke_tool(tool_obj, query)
-            except Exception as exc:  # pragma: no cover - pass-through
+            except Exception as exc:  # pragma: no cover - 透传异常
                 error["exc"] = exc
 
         worker = threading.Thread(target=_runner, daemon=True)
@@ -523,7 +525,7 @@ class MCPClientManager:
         def _runner() -> None:
             try:
                 result["value"] = asyncio.run(coro)
-            except Exception as exc:  # pragma: no cover - pass-through
+            except Exception as exc:  # pragma: no cover - 透传异常
                 error["exc"] = exc
 
         thread = threading.Thread(target=_runner, daemon=True)
@@ -707,18 +709,11 @@ class MCPClientManager:
                 if issue_intent and "issue" in name:
                     s += 180
 
-            if source == "db":
+            if source in {"db", "mysql"}:
                 db_intent = any(k in text for k in ("数据库", "表", "字段", "列", "索引", "外键", "schema", "ddl", "sql"))
                 if db_intent and any(k in merged for k in ("schema", "table", "column", "field", "index", "ddl", "sql")):
                     s += 260
                 if db_intent and any(k in name for k in ("list_", "get_", "search_")):
-                    s += 80
-
-            if source == "log":
-                log_intent = any(k in text for k in ("日志", "报错", "错误", "异常", "stack", "traceback", "log", "error"))
-                if log_intent and any(k in merged for k in ("log", "error", "trace", "tail", "search")):
-                    s += 260
-                if log_intent and any(k in name for k in ("list_", "get_", "search_", "tail")):
                     s += 80
 
             return s

@@ -75,7 +75,7 @@ class RewriteStrategy(BaseModel):
     strategy: Literal["step_back", "hyde", "complex"]
 
 
-# RAG 状态定义
+# 检索流程状态定义
 class RAGState(TypedDict):
     question: str
     query: str
@@ -102,7 +102,7 @@ def _format_docs(docs: List[dict]) -> str:
     return "\n\n---\n\n".join(chunks)
 
 
-# retrieve_initial - 初始检索
+# 初始检索节点
 def retrieve_initial(state: RAGState) -> RAGState:
     query = state["question"]
     emit_rag_step("🔍", "正在检索知识库...", f"查询: {query[:50]}")
@@ -171,7 +171,7 @@ def grade_documents_node(state: RAGState) -> RAGState:
     grader = _get_grader_model()
     emit_rag_step("📊", "正在评估文档相关性...")
 
-    # 如果没有配置 Grading Model，默认重写查询
+    # 如果未配置评估模型，默认进入查询重写
     if not grader:
         grade_update = {
             "grade_score": "unknown",
@@ -187,13 +187,13 @@ def grade_documents_node(state: RAGState) -> RAGState:
 
     prompt = GRADE_PROMPT.format(question=question, context=context)
 
-    # 调用 LLM 进行相关性评估
+    # 调用大模型做相关性评估
     response = grader.with_structured_output(GradeDocuments).invoke(
         [{"role": "user", "content": prompt}]
     )
     score = (response.binary_score or "").strip().lower()
 
-    # 路由决策: yes → 生成答案, no → 重写查询
+    # 路由决策：yes 直接回答，no 重写查询
     route = "generate_answer" if score == "yes" else "rewrite_question"
 
     if route == "generate_answer":
@@ -212,13 +212,13 @@ def grade_documents_node(state: RAGState) -> RAGState:
     return {"route": route, "rag_trace": rag_trace}
 
 
-# 查询重写
+# 查询重写节点
 def rewrite_question_node(state: RAGState) -> RAGState:
     question = state["question"]
     emit_rag_step("✏️", "正在重写查询...")
     router = _get_router_model()
 
-    # 策略选择
+    # 选择重写策略
     strategy = "step_back"
     if router:
         prompt = (
@@ -269,7 +269,7 @@ def rewrite_question_node(state: RAGState) -> RAGState:
     }
 
 
-# retrieve_expanded - 二次检索
+# 扩展检索节点
 def retrieve_expanded(state: RAGState) -> RAGState:
     strategy = state.get("expansion_type") or "step_back"
     hyde_docs: List[dict] = []
@@ -294,7 +294,7 @@ def retrieve_expanded(state: RAGState) -> RAGState:
     if strategy in ("hyde", "complex"):
         hypothetical_doc = state.get("hypothetical_doc") or generate_hypothetical_document(state["question"])
         retrieved_hyde = retrieve_documents(hypothetical_doc, top_k=5)
-        # results.extend(retrieved_hyde.get("docs", []))
+        # 仅保留用于融合的分支结果，避免重复追加。
         hyde_docs = retrieved_hyde.get("docs", [])
         results.extend(hyde_docs)
         hyde_meta = retrieved_hyde.get("meta", {})
@@ -327,7 +327,7 @@ def retrieve_expanded(state: RAGState) -> RAGState:
         retrieved_stepback = retrieve_documents(expanded_query, top_k=5)
         step_docs = retrieved_stepback.get("docs", [])
         results.extend(step_docs)
-        # results.extend(retrieved_stepback.get("docs", []))
+        # 仅保留用于融合的分支结果，避免重复追加。
 
         step_meta = retrieved_stepback.get("meta", {})
         emit_rag_step(
@@ -354,11 +354,11 @@ def retrieve_expanded(state: RAGState) -> RAGState:
         auto_merge_replaced_chunks += int(step_meta.get("auto_merge_replaced_chunks") or 0)
         auto_merge_steps += int(step_meta.get("auto_merge_steps") or 0)
 
-    # RRF 融合 + 去重
+    # 执行 RRF 融合并去重
     rrf_k = 60
     rrf_scores = {}
     docs_by_key = {}
-    # 仅融合真实分支结果；若某次没有分支结果则回退到 results
+    # 仅融合真实分支结果；若分支为空则回退到初始结果集。
     source_lists = [hyde_docs, step_docs]
     if not any(source_lists):
         source_lists = [results]
@@ -408,9 +408,9 @@ def retrieve_expanded(state: RAGState) -> RAGState:
     return {"docs": deduped, "context": context, "rag_trace": rag_trace}
 
 
-# 构建 LangGraph 状态图
+# 构建 LangGraph 状态流
 def build_rag_graph():
-    # 图流程
+    # 状态流定义
 
     graph = StateGraph(RAGState)
     graph.add_node("retrieve_initial", retrieve_initial)

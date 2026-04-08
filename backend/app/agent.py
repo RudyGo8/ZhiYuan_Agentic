@@ -141,27 +141,62 @@ class ConversationStorage:
             else:
                 session.metadata_json = metadata or {}
 
-            db.query(ChatMessage).filter(ChatMessage.session_ref_id == session.id).delete(synchronize_session=False)
-
-            now = datetime.now()
+            incoming_rows: list[dict] = []
             for idx, msg in enumerate(messages):
                 rag_trace = None
                 if extra_message_data and idx < len(extra_message_data):
                     extra = extra_message_data[idx] or {}
                     rag_trace = extra.get("rag_trace")
-
-                db.add(
-                    ChatMessage(
-                        session_ref_id=session.id,
-                        message_type=msg.type,
-                        content=str(msg.content),
-                        rag_trace=rag_trace,
-                    )
+                incoming_rows.append(
+                    {
+                        "message_type": msg.type,
+                        "content": str(msg.content),
+                        "rag_trace": rag_trace,
+                    }
                 )
+
+            existing_rows = (
+                db.query(ChatMessage)
+                .filter(ChatMessage.session_ref_id == session.id)
+                .order_by(ChatMessage.id.asc())
+                .all()
+            )
+
+            def _same_message(lhs: dict, rhs: ChatMessage) -> bool:
+                return lhs["message_type"] == rhs.message_type and lhs["content"] == rhs.content
+
+            can_append = (
+                len(existing_rows) <= len(incoming_rows)
+                and all(_same_message(incoming_rows[idx], row) for idx, row in enumerate(existing_rows))
+            )
+
+            now = datetime.now()
+            if can_append:
+                for idx in range(len(existing_rows), len(incoming_rows)):
+                    payload = incoming_rows[idx]
+                    db.add(
+                        ChatMessage(
+                            session_ref_id=session.id,
+                            message_type=payload["message_type"],
+                            content=payload["content"],
+                            rag_trace=payload["rag_trace"],
+                        )
+                    )
+            else:
+                db.query(ChatMessage).filter(ChatMessage.session_ref_id == session.id).delete(synchronize_session=False)
+                for payload in incoming_rows:
+                    db.add(
+                        ChatMessage(
+                            session_ref_id=session.id,
+                            message_type=payload["message_type"],
+                            content=payload["content"],
+                            rag_trace=payload["rag_trace"],
+                        )
+                    )
 
             session.update_time = now
             db.commit()
-            # Invalidate caches after successful write to avoid stale reads.
+            # 写入成功后清理缓存，避免读取到旧数据。
             cache.delete(self._messages_cache_key(user_id, session_id))
             cache.delete(self._sessions_cache_key(user_id))
         finally:
@@ -179,7 +214,7 @@ class ConversationStorage:
         return self._to_langchain_messages(records)
 
     def list_sessions(self, user_id: str) -> list:
-        """List all session IDs for a user."""
+        """列出用户所有会话ID。"""
         return [item["session_id"] for item in self.list_session_infos(user_id)]
 
     def list_session_infos(self, user_id: str) -> list[dict]:
@@ -335,7 +370,7 @@ def rebuild_agent_with_external_tools() -> list[str]:
 
 
 def summarize_old_messages(model, messages: list) -> str:
-    """Summarize old conversation turns to keep prompt length bounded."""
+    """压缩较早对话，控制上下文长度。"""
     old_conversation = "\n".join(
         [f"{'用户' if msg.type == 'human' else 'AI'}: {msg.content}" for msg in messages]
     )
@@ -363,8 +398,8 @@ def _select_mcp_prefetch_sources(user_text: str, plan) -> list[str]:
 
 def _prefetch_mcp_context(user_text: str, plan) -> tuple[str, list[str]]:
     """
-    Prefetch MCP evidence for skill-mode turns.
-    This avoids "template says queried MCP" while actual MCP calls are zero.
+    在技能模式下预取 MCP 证据。
+    避免提示词声明“已查询外部来源”但实际没有 MCP 调用。
     """
     if not getattr(plan, "use_mcp", False):
         return "", []
@@ -482,7 +517,7 @@ def chat_with_agent(user_text: str, user_id: str = "default_user", session_id: s
         reset_turn_policy()
 
 
-# SSE流式输出
+# 服务端事件流式输出
 async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", session_id: str = "default_session"):
     messages = storage.load(user_id, session_id)
     plan = route_skill(user_text)
@@ -505,8 +540,7 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
         messages = [SystemMessage(content=f"之前的对话摘要：\n{summary}")] + messages[40:]
 
     if getattr(plan, "use_mcp", False):
-        # Emit an early event so frontend is not stuck waiting for first token
-        # when MCP prefetch is slow.
+        # 先发一个进度事件，避免 MCP 预取较慢时前端长时间无反馈。
         yield f"data: {json.dumps({'type': 'rag_step', 'step': {'icon': '⏳', 'label': '处理中', 'detail': '正在获取外部实时证据...'}})}\n\n"
 
     skill_prompt = build_skill_prompt(user_text, plan)

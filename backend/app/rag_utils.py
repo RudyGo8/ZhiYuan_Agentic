@@ -38,7 +38,7 @@ def retrieve_documents(query: str, top_k: int = 5) -> dict:
     dense_embedding = embedding_service.get_embedding(query)
     sparse_embedding = embedding_service.get_sparse_embedding(query)
 
-    # Hybrid Search
+    # 混合检索
     retrieval_mode = "hybrid"
     try:
         results = milvus_service.hybrid_search(dense_embedding, sparse_embedding, top_k * 2)
@@ -46,7 +46,7 @@ def retrieve_documents(query: str, top_k: int = 5) -> dict:
         retrieval_mode = "dense"
         results = milvus_service.dense_search(dense_embedding, top_k * 2)
 
-    # rerank
+    # 重排
     rerank_enabled = False
     rerank_applied = False
     rerank_model = None
@@ -90,7 +90,7 @@ def retrieve_documents(query: str, top_k: int = 5) -> dict:
         except Exception as e:
             rerank_error = str(e)
 
-    # Auto-merging
+    # 自动合并
     auto_merge_enabled = AUTO_MERGE_ENABLED
     auto_merge_applied = False
     auto_merge_replaced_chunks = 0
@@ -155,7 +155,7 @@ def retrieve_documents(query: str, top_k: int = 5) -> dict:
 
 
 # 查询扩展策略
-# step_back 退步
+# 退步问题扩展策略
 def step_back_expand(query: str) -> dict:
     try:
         from langchain.chat_models import init_chat_model
@@ -192,7 +192,7 @@ def step_back_expand(query: str) -> dict:
     }
 
 
-# HyDE 假设文档生成
+# 假设文档生成策略
 def generate_hypothetical_document(query: str) -> str:
     try:
         from langchain.chat_models import init_chat_model
