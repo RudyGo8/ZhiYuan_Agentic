@@ -31,29 +31,7 @@ MODEL_OUTPUT_PRICE_PER_1K = float(os.getenv("MODEL_OUTPUT_PRICE_PER_1K", "0"))
 COST_CURRENCY = os.getenv("COST_CURRENCY", "CNY")
 AGENT_RECURSION_LIMIT = max(8, int(os.getenv("AGENT_RECURSION_LIMIT", "16")))
 MCP_PREFETCH_MAX_SOURCES = max(1, int(os.getenv("MCP_PREFETCH_MAX_SOURCES", "2")))
-MCP_PREFETCH_MIN_QUERY_CHARS = max(1, int(os.getenv("MCP_PREFETCH_MIN_QUERY_CHARS", "2")))
 MCP_PREFETCH_MAX_TOOLS_PER_SOURCE = max(1, int(os.getenv("MCP_PREFETCH_MAX_TOOLS_PER_SOURCE", "1")))
-
-MCP_SOURCE_HINTS = {
-    "monitor": (
-        "故障", "报错", "错误", "异常", "告警", "超时", "状态", "可用性", "延迟", "监控",
-        "error", "incident", "alert", "latency", "status", "monitor", "availability",
-    ),
-    "git": (
-        "代码", "提交", "变更", "上线", "发布", "回滚", "分支", "pr", "commit",
-        "git", "github", "gitlab", "merge", "release",
-    ),
-    "docs": (
-        "文档", "方案", "设计", "说明", "wiki", "纪要", "手册", "readme", "spec", "doc", "document",
-    ),
-}
-
-MCP_SKILL_SOURCE_PRIORITIES = {
-    "troubleshooting": ("monitor", "git"),
-    "test_analysis": ("git", "docs"),
-    "doc_analysis": ("docs",),
-    "default_rag": ("monitor", "docs"),
-}
 
 
 def _normalize_usage(usage: dict | None) -> dict | None:
@@ -373,7 +351,6 @@ def summarize_old_messages(model, messages: list) -> str:
 
 
 def _select_mcp_prefetch_sources(user_text: str, plan) -> list[str]:
-    query = (user_text or "").strip().lower()
     configured_sources = [
         str(source).strip().lower()
         for source in (getattr(plan, "mcp_sources", []) or [])
@@ -381,25 +358,7 @@ def _select_mcp_prefetch_sources(user_text: str, plan) -> list[str]:
     ]
     if not configured_sources:
         return []
-
-    if len(query) < MCP_PREFETCH_MIN_QUERY_CHARS:
-        return configured_sources[:1]
-
-    priority_sources = set(MCP_SKILL_SOURCE_PRIORITIES.get(getattr(plan, "name", ""), ()))
-    scored: list[tuple[int, int, str]] = []
-    for idx, source in enumerate(configured_sources):
-        hints = MCP_SOURCE_HINTS.get(source, ())
-        score = sum(1 for kw in hints if kw in query)
-        if source in priority_sources:
-            score += 1
-        scored.append((score, -idx, source))
-
-    scored.sort(reverse=True)
-    selected = [source for score, _, source in scored if score > 0]
-    if not selected:
-        prioritized = [source for source in MCP_SKILL_SOURCE_PRIORITIES.get(getattr(plan, "name", ""), ()) if source in configured_sources]
-        selected = prioritized or configured_sources[:1]
-    return selected[:MCP_PREFETCH_MAX_SOURCES]
+    return configured_sources[:MCP_PREFETCH_MAX_SOURCES]
 
 
 def _prefetch_mcp_context(user_text: str, plan) -> tuple[str, list[str]]:
