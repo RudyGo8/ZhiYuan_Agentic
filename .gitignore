@@ -5,3 +5,4 @@ __pycache__
 *.pyc
 *.log
 logs/
+frontend/node_modules
