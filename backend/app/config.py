@@ -47,6 +47,7 @@ MCP_SERVERS_JSON = os.getenv("MCP_SERVERS_JSON", "")
 MCP_TOOL_ALLOWLIST = os.getenv("MCP_TOOL_ALLOWLIST", "")
 MCP_SOURCE_ALLOWLIST = os.getenv("MCP_SOURCE_ALLOWLIST", "")
 MCP_MAX_TOOLS_PER_SOURCE = int(os.getenv("MCP_MAX_TOOLS_PER_SOURCE", "3"))
+MCP_TOOL_TIMEOUT_SECONDS = float(os.getenv("MCP_TOOL_TIMEOUT_SECONDS", "12"))
 
 LOG_PATH = os.getenv("LOG_PATH", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs"))
 

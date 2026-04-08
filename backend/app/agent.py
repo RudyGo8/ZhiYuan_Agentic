@@ -32,6 +32,7 @@ COST_CURRENCY = os.getenv("COST_CURRENCY", "CNY")
 AGENT_RECURSION_LIMIT = max(8, int(os.getenv("AGENT_RECURSION_LIMIT", "16")))
 MCP_PREFETCH_MAX_SOURCES = max(1, int(os.getenv("MCP_PREFETCH_MAX_SOURCES", "2")))
 MCP_PREFETCH_MIN_QUERY_CHARS = max(1, int(os.getenv("MCP_PREFETCH_MIN_QUERY_CHARS", "2")))
+MCP_PREFETCH_MAX_TOOLS_PER_SOURCE = max(1, int(os.getenv("MCP_PREFETCH_MAX_TOOLS_PER_SOURCE", "1")))
 
 MCP_SOURCE_HINTS = {
     "monitor": (
@@ -418,7 +419,13 @@ def _prefetch_mcp_context(user_text: str, plan) -> tuple[str, list[str]]:
     all_items: list[dict] = []
     for source in sources:
         emit_rag_step("🔎", f"查询外部来源: {source}", query[:80])
-        all_items.extend(mcp_client_manager.query_source(source, query))
+        all_items.extend(
+            mcp_client_manager.query_source(
+                source,
+                query,
+                max_tools=MCP_PREFETCH_MAX_TOOLS_PER_SOURCE,
+            )
+        )
 
     if not all_items:
         return "【外部实时证据】未获取到可用结果。若结论依赖实时数据，请明确说明证据不足。", sources
@@ -537,6 +544,11 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
     if len(messages) > 50:
         summary = summarize_old_messages(model, messages[:40])
         messages = [SystemMessage(content=f"之前的对话摘要：\n{summary}")] + messages[40:]
+
+    if getattr(plan, "use_mcp", False):
+        # Emit an early event so frontend is not stuck waiting for first token
+        # when MCP prefetch is slow.
+        yield f"data: {json.dumps({'type': 'rag_step', 'step': {'icon': '⏳', 'label': '处理中', 'detail': '正在获取外部实时证据...'}})}\n\n"
 
     skill_prompt = build_skill_prompt(user_text, plan)
     prefetched_sources: list[str] = []

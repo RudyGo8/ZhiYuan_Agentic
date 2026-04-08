@@ -160,6 +160,12 @@ Base Prefix: `/api/r1`
 - `POST /documents/upload`
 - `DELETE /documents/{filename}`
 
+### 6.1 MCP Client Layer
+- Role: connect external read-only MCP servers as context sources
+- Sources: `git`, `jira`, `docs`, `monitor`
+- Control: source whitelist + tool-name allowlist + read-only keyword policy
+- Usage: agent may call MCP tools only when Skill routing enables it
+
 ---
 
 ## 7. Project Structure
@@ -172,6 +178,8 @@ Rag_Agent/
 │  │  ├─ tools.py
 │  │  ├─ rag_pipeline.py
 │  │  ├─ rag_utils.py
+│  │  ├─ mcp/
+│  │  ├─ skills/
 │  │  ├─ routes/common/
 │  │  ├─ services/
 │  │  ├─ models/
@@ -205,6 +213,10 @@ Rag_Agent/
 - `RERANK_API_KEY` (optional)
 - `RERANK_MODEL` (optional)
 - `RERANK_BINDING_HOST` (optional)
+- `MCP_ENABLED` (optional, default: false)
+- `MCP_SERVERS_JSON` (optional)
+- `MCP_SOURCE_ALLOWLIST` (optional)
+- `MCP_TOOL_ALLOWLIST` (optional)
 
 ### Frontend
 - `VITE_API_BASE_URL` (default: `/api/r1`)
@@ -234,3 +246,17 @@ npm run dev
 
 ---
 
+## 10. MCP Client Config
+系统默认不会启用 MCP。
+
+在 `backend/.env` 配置：
+```bash
+MCP_ENABLED=true
+MCP_SERVERS_JSON={"github":{"transport":"streamable_http","url":"http://127.0.0.1:9001/mcp"}}
+MCP_SOURCE_ALLOWLIST=git,jira,docs,monitor
+MCP_TOOL_ALLOWLIST=
+```
+
+- `MCP_SERVERS_JSON` 使用 MultiServerMCPClient 的多服务配置格式。
+- `MCP_SOURCE_ALLOWLIST` 控制允许接入的能力域。
+- `MCP_TOOL_ALLOWLIST` 可选，用于精确白名单具体工具名。
