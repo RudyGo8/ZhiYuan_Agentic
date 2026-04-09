@@ -41,13 +41,15 @@ def build_default_plan(use_mcp: bool = False, mcp_sources: list[str] | None = No
     normalized_sources = _normalize_sources(mcp_sources)
     return SkillPlan(
         name="default_rag",
-        display_name="榛樿闂瓟",
+        display_name="默认知识库",
         use_mcp=use_mcp,
         mcp_sources=normalized_sources if use_mcp else [],
         output_template="",
     )
 
+
 def load_skill_definitions() -> list[SkillDefinition]:
+    # 读取skill包目录
     root = _skillpacks_dir()
     if not root.exists():
         return []
@@ -113,5 +115,3 @@ def build_plan_from_definition(definition: SkillDefinition) -> SkillPlan:
         mcp_sources=_normalize_sources(definition.mcp_sources) if definition.use_mcp else [],
         output_template=definition.output_template,
     )
-
-

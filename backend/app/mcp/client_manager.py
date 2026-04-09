@@ -16,7 +16,7 @@ from app.mcp.trace import append_mcp_trace, new_mcp_call
 _MCP_IMPORT_ERROR: str | None = None
 try:
     from langchain_mcp_adapters.client import MultiServerMCPClient
-except Exception:  # pragma: no cover - 可选依赖
+except Exception:  # 可选依赖
     MultiServerMCPClient = None
     _MCP_IMPORT_ERROR = traceback.format_exc()
 
@@ -40,6 +40,7 @@ class MCPClientManager:
         return sorted(self._registry.keys())
 
     async def initialize(self) -> None:
+        # mcp初始化流程
         if self._initialized:
             return
         self._initialized = True
@@ -87,7 +88,7 @@ class MCPClientManager:
                 client = MultiServerMCPClient({server_name: server_cfg})
                 tools = await client.get_tools()
                 raw_tools.extend(tools)
-            except Exception as exc:  # pragma: no cover - 外部集成异常
+            except Exception as exc:
                 failed_servers[server_name] = str(exc)
                 logger.warning("MCP server init failed: server=%s err=%s", server_name, exc)
 
@@ -110,6 +111,7 @@ class MCPClientManager:
                 self._init_error = "no readonly tools available after policy filtering"
 
     def query_source(self, source: str, query: str, max_tools: int | None = None) -> list[dict[str, Any]]:
+        # 在指定 source 下，根据 query 选出最相关的若干 MCP 工具，逐个执行并限时，记录调用轨迹，最后把成功结果的摘要统一返回。
         source = (source or "").strip().lower()
         query = (query or "").strip()
         entries = self._registry.get(source, [])
@@ -309,6 +311,7 @@ class MCPClientManager:
 
     @staticmethod
     def _expand_env_vars(value: Any) -> Any:
+        # 递归扫描配置对象
         pattern = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
         if isinstance(value, str):
             return pattern.sub(lambda m: os.getenv(m.group(1), ""), value)

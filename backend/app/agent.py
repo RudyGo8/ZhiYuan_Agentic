@@ -32,7 +32,7 @@ MCP_PREFETCH_MAX_TOOLS_PER_SOURCE = max(1, int(os.getenv("MCP_PREFETCH_MAX_TOOLS
 MANDATORY_RAG_TOOL_INSTRUCTION = (
     "执行约束：本轮回答前必须先调用一次 search_knowledge_base（RAG 检索）；"
     "若返回 TOOL_CALL_LIMIT_REACHED 或无相关结果，不要重复调用，"
-    "直接基于现有证据给出结论并明确说明限制。"
+    "直接基于现有信息给出结论并简要说明限制。"
 )
 
 
@@ -94,6 +94,7 @@ def _build_mcp_summary(mcp_calls: list[dict] | None) -> dict:
 
 
 def _append_mandatory_rag_instruction(skill_prompt: str) -> str:
+    # 必须遵守规则
     content = (skill_prompt or "").rstrip()
     if MANDATORY_RAG_TOOL_INSTRUCTION in content:
         return content
@@ -103,13 +104,15 @@ def _append_mandatory_rag_instruction(skill_prompt: str) -> str:
 
 
 class ConversationStorage:
-
+    # 会话存储器
     @staticmethod
     def _messages_cache_key(user_id: str, session_id: str) -> str:
+        # redis 某个会话的消息缓存
         return f"chat_messages:{user_id}:{session_id}"
 
     @staticmethod
     def _sessions_cache_key(user_id: str) -> str:
+        # 会话列表缓存
         return f"chat_sessions:{user_id}"
 
     @staticmethod
@@ -177,8 +180,8 @@ class ConversationStorage:
                 return lhs["message_type"] == rhs.message_type and lhs["content"] == rhs.content
 
             can_append = (
-                len(existing_rows) <= len(incoming_rows)
-                and all(_same_message(incoming_rows[idx], row) for idx, row in enumerate(existing_rows))
+                    len(existing_rows) <= len(incoming_rows)
+                    and all(_same_message(incoming_rows[idx], row) for idx, row in enumerate(existing_rows))
             )
 
             now = datetime.now()
@@ -408,8 +411,7 @@ def _select_mcp_prefetch_sources(user_text: str, plan) -> list[str]:
 
 def _prefetch_mcp_context(user_text: str, plan) -> tuple[str, list[str]]:
     """
-    在技能模式下预取 MCP 证据。
-    避免提示词声明“已查询外部来源”但实际没有 MCP 调用。
+    在技能模式下预取 MCP 工具。
     """
     if not getattr(plan, "use_mcp", False):
         return "", []
@@ -432,9 +434,9 @@ def _prefetch_mcp_context(user_text: str, plan) -> tuple[str, list[str]]:
         )
 
     if not all_items:
-        return "【外部实时证据】未获取到可用结果。若结论依赖实时数据，请明确说明证据不足。", sources
+        return "【外部实时信息】未获取到可用结果。若结论依赖实时数据，请明确说明数据不足。", sources
 
-    lines = ["【外部实时证据】"]
+    lines = ["【实时信息】"]
     for idx, item in enumerate(all_items[:8], 1):
         source = item.get("source", "unknown")
         tool_name = item.get("tool_name", "unknown")
@@ -442,7 +444,7 @@ def _prefetch_mcp_context(user_text: str, plan) -> tuple[str, list[str]]:
         if len(summary) > 280:
             summary = summary[:280] + "..."
         lines.append(f"{idx}. source={source}, tool={tool_name}, summary={summary}")
-    lines.append("请优先基于以上证据输出结论；若证据已足够，请不要重复调用相同外部来源。")
+    lines.append("请优先基于以上信息输出结论；若信息已足够，请不要重复调用相同外部来源。")
     return "\n".join(lines), sources
 
 
@@ -460,6 +462,7 @@ def _prepare_messages(messages: list) -> list:
     return [SystemMessage(content=f"之前的对话摘要：\n{summary}")] + messages[40:]
 
 
+# 构建最终提示词
 def _build_turn_prompt(user_text: str, plan, user_id: str) -> tuple[str, list[str]]:
     skill_prompt = build_skill_prompt(user_text, plan)
     prefetched_sources: list[str] = []
@@ -568,9 +571,9 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
         nonlocal full_response, stream_usage
         try:
             async for msg, _metadata in agent.astream(
-                {"messages": messages},
-                stream_mode="messages",
-                config={"recursion_limit": AGENT_RECURSION_LIMIT},
+                    {"messages": messages},
+                    stream_mode="messages",
+                    config={"recursion_limit": AGENT_RECURSION_LIMIT},
             ):
                 if not isinstance(msg, AIMessageChunk):
                     continue

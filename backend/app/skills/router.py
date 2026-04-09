@@ -27,6 +27,7 @@ def _score_keywords(text: str, keywords: list[str]) -> int:
     return sum(1 for keyword in keywords if _contains_keyword(text, keyword))
 
 
+# 识别技能
 def route_skill(query: str) -> SkillPlan:
     text = (query or "").strip().lower()
     if not text:
@@ -59,14 +60,14 @@ def build_skill_prompt(user_query: str, plan: SkillPlan) -> str:
         return user_query
 
     mcp_tip = (
-        f"\u8bf7\u4f18\u5148\u8c03\u7528\u4ee5\u4e0b\u5916\u90e8\u6765\u6e90\u83b7\u53d6\u5b9e\u65f6\uff1a{', '.join(plan.mcp_sources)}\u3002"
-        "\u82e5\u8c03\u7528\u5931\u8d25\uff0c\u8bf7\u5728\u7ed3\u8bba\u4e2d\u660e\u786e\u8bf4\u660e\u3002"
+        f"请优先调用以下外部来源获取实时信息：{', '.join(plan.mcp_sources)}\u3002"
+        "若调用失败，请在结论中明确说明。"
         if plan.use_mcp and plan.mcp_sources
-        else "\u4f18\u5148\u4f7f\u7528\u77e5\u8bc6\u5e93\u56de\u7b54\uff0c\u82e5\u8bc1\u636e\u4e0d\u8db3\u8bf7\u660e\u786e\u8bf4\u660e\u9650\u5236\u3002"
+        else "优先使用知识库回答，若证据不足请明确说明限制。"
     )
     return (
-        f"\u7528\u6237\u539f\u59cb\u95ee\u9898\uff1a{user_query}\n\n"
-        f"\u8bf7\u4ee5\u201c{plan.display_name}\u201d\u6a21\u5f0f\u56de\u7b54\u3002\n"
+        f"用户原始问题：{user_query}\n\n"
+        f"请以“{plan.display_name}”模式回答。"
         f"{mcp_tip}\n"
         f"{plan.output_template}\n"
     )
