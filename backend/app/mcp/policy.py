@@ -31,10 +31,7 @@ _MCP_ALLOWED_SOURCES: ContextVar[set[str]] = ContextVar("_MCP_ALLOWED_SOURCES", 
 
 
 def _normalize_source_name(source: str) -> str:
-    value = (source or "").strip().lower()
-    if value == "db":
-        return "mysql"
-    return value
+    return (source or "").strip().lower()
 
 
 def _normalized_set(value: str) -> set[str]:

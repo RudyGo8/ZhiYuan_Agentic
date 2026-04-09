@@ -9,8 +9,6 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-import httpx
-
 from app.config import MCP_ENABLED, MCP_MAX_TOOLS_PER_SOURCE, MCP_SERVERS_JSON, MCP_TOOL_TIMEOUT_SECONDS, logger
 from app.mcp.tool_registry import MCPToolEntry, build_registry
 from app.mcp.trace import append_mcp_trace, new_mcp_call
@@ -113,17 +111,10 @@ class MCPClientManager:
 
     def query_source(self, source: str, query: str, max_tools: int | None = None) -> list[dict[str, Any]]:
         source = (source or "").strip().lower()
-        if source == "db":
-            source = "mysql"
         query = (query or "").strip()
         entries = self._registry.get(source, [])
         if not query:
             return []
-        if (not self._enabled or not entries) and source == "mysql":
-            http_results = self._query_db_http_fallback(query)
-            if http_results:
-                return http_results
-            return self._query_db_fallback(query)
         if not self._enabled or not entries:
             return []
 
@@ -159,262 +150,6 @@ class MCPClientManager:
             if success and summary:
                 output.append({"source": source, "tool_name": entry.name, "summary": summary})
         return output
-
-    def query_sources(self, sources: list[str], query: str) -> list[dict[str, Any]]:
-        items: list[dict[str, Any]] = []
-        for source in sources:
-            items.extend(self.query_source(source, query))
-        return items
-
-    @staticmethod
-    def _query_db_fallback(query: str) -> list[dict[str, Any]]:
-        start = time.perf_counter()
-        try:
-            from sqlalchemy import inspect
-            from app.database import engine
-
-            inspector = inspect(engine)
-            tables = inspector.get_table_names()
-            query_text = (query or "").lower()
-            table_list_intent = MCPClientManager._is_table_list_intent(query_text)
-            column_intent = MCPClientManager._is_column_intent(query_text)
-            table_name = MCPClientManager._extract_table_name(query_text, tables)
-            if not tables:
-                summary = "No tables found in current database."
-            elif column_intent and table_name:
-                cols = inspector.get_columns(table_name)
-                if cols:
-                    col_list = []
-                    for col in cols:
-                        name = str(col.get("name") or "").strip()
-                        col_type = str(col.get("type") or "").strip()
-                        if name:
-                            col_list.append(f"{name}({col_type})" if col_type else name)
-                    summary = f"{table_name} columns: " + ", ".join(col_list[:120])
-                else:
-                    summary = f"table not found: {table_name}"
-            elif table_list_intent:
-                summary = "tables: " + ", ".join(tables)
-            else:
-                lines = []
-                for name in tables[:8]:
-                    cols = inspector.get_columns(name)
-                    col_names = [str(c.get("name")) for c in cols if c.get("name")]
-                    lines.append(f"{name}({', '.join(col_names[:12])})")
-                summary = "schema: " + "; ".join(lines)
-
-            duration_ms = int((time.perf_counter() - start) * 1000)
-            append_mcp_trace(
-                new_mcp_call(
-                    server_name="mysql",
-                    tool_name="local_db_schema_fallback",
-                    query=query,
-                    success=True,
-                    duration_ms=duration_ms,
-                    result_summary=summary[:500],
-                    error=None,
-                )
-            )
-            return [{"source": "mysql", "tool_name": "local_db_schema_fallback", "summary": summary}]
-        except Exception as exc:
-            duration_ms = int((time.perf_counter() - start) * 1000)
-            append_mcp_trace(
-                new_mcp_call(
-                    server_name="mysql",
-                    tool_name="local_db_schema_fallback",
-                    query=query,
-                    success=False,
-                    duration_ms=duration_ms,
-                    result_summary="",
-                    error=str(exc),
-                )
-            )
-            return []
-
-    @staticmethod
-    def _query_db_http_fallback(query: str) -> list[dict[str, Any]]:
-        base_url = (os.getenv("MYSQL_MCP_HTTP_BASE") or "").strip().rstrip("/")
-        if not base_url:
-            return []
-
-        query_text = (query or "").lower()
-        table_list_intent = MCPClientManager._is_table_list_intent(query_text)
-        column_intent = MCPClientManager._is_column_intent(query_text)
-        table_name = MCPClientManager._extract_table_name(query_text)
-        if table_list_intent:
-            sql = "SHOW TABLES;"
-            summary_mode = "tables"
-        elif column_intent and table_name:
-            sql = f"DESCRIBE `{table_name}`;"
-            summary_mode = "columns"
-        else:
-            sql = "SHOW TABLES;"
-            summary_mode = "tables"
-
-        database = (os.getenv("MYSQL_DATABASE") or "").strip()
-        request_payload: dict[str, Any] = {"sql": sql}
-        if database:
-            request_payload["database"] = database
-
-        start = time.perf_counter()
-        error: str | None = None
-        summary = ""
-        try:
-            with httpx.Client(timeout=8.0) as client:
-                response = client.post(f"{base_url}/api/query", json=request_payload)
-                response.raise_for_status()
-                payload = response.json()
-            if isinstance(payload, dict) and payload.get("success") is False:
-                raise RuntimeError(str(payload.get("error") or "db http query failed"))
-            summary = MCPClientManager._summarize_db_http_result(payload, summary_mode, table_name)
-        except Exception as exc:
-            error = str(exc)
-
-        duration_ms = int((time.perf_counter() - start) * 1000)
-        append_mcp_trace(
-            new_mcp_call(
-                server_name="mysql",
-                tool_name="db_http_query",
-                query=query,
-                success=bool(summary) and error is None,
-                duration_ms=duration_ms,
-                result_summary=summary[:500],
-                error=error,
-            )
-        )
-        if summary and error is None:
-            return [{"source": "mysql", "tool_name": "db_http_query", "summary": summary}]
-        return []
-
-    @staticmethod
-    def _is_table_list_intent(query_text: str) -> bool:
-        return any(k in query_text for k in ("table", "tables", "list tables", "哪些表", "有哪些表", "有什么表", "表名")) or (
-            "表" in query_text and any(k in query_text for k in ("哪些", "有", "列出", "list"))
-        )
-
-    @staticmethod
-    def _is_column_intent(query_text: str) -> bool:
-        return any(
-            k in query_text
-            for k in ("字段", "列", "表结构", "结构", "column", "columns", "field", "fields", "schema", "describe", "desc")
-        )
-
-    @staticmethod
-    def _extract_table_name(query_text: str, available_tables: list[str] | None = None) -> str | None:
-        query_text = (query_text or "").strip()
-        if not query_text:
-            return None
-
-        table_map: dict[str, str] = {}
-        if available_tables:
-            table_map = {str(t).lower(): str(t) for t in available_tables if t}
-
-        def _normalize(candidate: str) -> str | None:
-            name = (candidate or "").strip()
-            if not name:
-                return None
-            if table_map:
-                return table_map.get(name.lower())
-            return name
-
-        patterns = [
-            r"\b(?:table|from|describe|desc)\s+([a-zA-Z_][a-zA-Z0-9_]*)\b",
-            r"([a-zA-Z_][a-zA-Z0-9_]*)\s*表",
-        ]
-        for pattern in patterns:
-            match = re.search(pattern, query_text, re.IGNORECASE)
-            if match:
-                normalized = _normalize(match.group(1))
-                if normalized:
-                    return normalized
-
-        identifiers = re.findall(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\b", query_text, re.IGNORECASE)
-        if not identifiers:
-            return None
-
-        stop_words = {
-            "table",
-            "tables",
-            "from",
-            "describe",
-            "desc",
-            "show",
-            "list",
-            "database",
-            "schema",
-            "column",
-            "columns",
-            "field",
-            "fields",
-            "sql",
-            "mysql",
-            "langchain_app",
-        }
-        candidates = [name for name in identifiers if name.lower() not in stop_words]
-        if not candidates:
-            return None
-
-        if table_map:
-            for name in candidates:
-                normalized = table_map.get(name.lower())
-                if normalized:
-                    return normalized
-
-        for name in candidates:
-            if name.lower().startswith("db_"):
-                return _normalize(name)
-        for name in candidates:
-            if "_" in name:
-                return _normalize(name)
-        if len(candidates) == 1:
-            return _normalize(candidates[0])
-        return None
-
-    @staticmethod
-    def _extract_rows_from_http_payload(payload: Any) -> list[Any]:
-        if isinstance(payload, list):
-            return payload
-        if isinstance(payload, dict):
-            for key in ("data", "rows", "result", "results"):
-                value = payload.get(key)
-                if isinstance(value, list):
-                    return value
-                if isinstance(value, dict):
-                    nested_rows = value.get("rows")
-                    if isinstance(nested_rows, list):
-                        return nested_rows
-        return []
-
-    @staticmethod
-    def _summarize_db_http_result(payload: Any, mode: str, table_name: str | None) -> str:
-        rows = MCPClientManager._extract_rows_from_http_payload(payload)
-        if mode == "tables":
-            table_names: list[str] = []
-            for row in rows:
-                if isinstance(row, dict):
-                    value = next((v for v in row.values() if isinstance(v, str) and v), None)
-                    if value:
-                        table_names.append(value)
-                elif isinstance(row, (list, tuple)) and row:
-                    table_names.append(str(row[0]))
-            if table_names:
-                return "tables: " + ", ".join(table_names[:50])
-            return MCPClientManager._summarize(payload)
-
-        if mode == "columns":
-            columns: list[str] = []
-            for row in rows:
-                if isinstance(row, dict):
-                    name = str(row.get("Field") or row.get("field") or row.get("COLUMN_NAME") or "").strip()
-                    col_type = str(row.get("Type") or row.get("type") or row.get("COLUMN_TYPE") or "").strip()
-                    if name:
-                        columns.append(f"{name}({col_type})" if col_type else name)
-            if columns:
-                prefix = f"{table_name} columns: " if table_name else "columns: "
-                return prefix + ", ".join(columns[:80])
-            return MCPClientManager._summarize(payload)
-
-        return MCPClientManager._summarize(payload)
 
     @staticmethod
     def _invoke_tool_with_timeout(tool_obj: Any, query: str, timeout_seconds: float) -> Any:
@@ -709,7 +444,7 @@ class MCPClientManager:
                 if issue_intent and "issue" in name:
                     s += 180
 
-            if source in {"db", "mysql"}:
+            if source == "mysql":
                 db_intent = any(k in text for k in ("数据库", "表", "字段", "列", "索引", "外键", "schema", "ddl", "sql"))
                 if db_intent and any(k in merged for k in ("schema", "table", "column", "field", "index", "ddl", "sql")):
                     s += 260

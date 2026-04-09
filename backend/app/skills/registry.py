@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 from dataclasses import dataclass
@@ -21,10 +21,7 @@ class SkillDefinition:
 
 
 def _normalize_source_name(source: str) -> str:
-    value = (source or "").strip().lower()
-    if value == "db":
-        return "mysql"
-    return value
+    return (source or "").strip().lower()
 
 
 def _normalize_sources(sources: list[str] | None) -> list[str]:
@@ -44,31 +41,13 @@ def build_default_plan(use_mcp: bool = False, mcp_sources: list[str] | None = No
     normalized_sources = _normalize_sources(mcp_sources)
     return SkillPlan(
         name="default_rag",
-        display_name="默认问答",
+        display_name="榛樿闂瓟",
         use_mcp=use_mcp,
         mcp_sources=normalized_sources if use_mcp else [],
         output_template="",
     )
 
-
-def build_db_schema_plan(use_mcp: bool = True) -> SkillPlan:
-    return SkillPlan(
-        name="db_schema",
-        display_name="数据库字段分析",
-        use_mcp=use_mcp,
-        mcp_sources=["mysql"] if use_mcp else [],
-        output_template=(
-            "请按以下结构输出：\n"
-            "1) 涉及表\n"
-            "2) 涉及字段\n"
-            "3) 字段作用说明\n"
-            "4) 表之间关系\n"
-            "5) 结论\n"
-        ),
-    )
-
-
-def load_skill_definitions() -> list[SkillDefinition]:
+`r`n`r`ndef load_skill_definitions() -> list[SkillDefinition]:
     root = _skillpacks_dir()
     if not root.exists():
         return []
@@ -134,3 +113,5 @@ def build_plan_from_definition(definition: SkillDefinition) -> SkillPlan:
         mcp_sources=_normalize_sources(definition.mcp_sources) if definition.use_mcp else [],
         output_template=definition.output_template,
     )
+
+

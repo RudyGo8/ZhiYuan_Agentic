@@ -34,14 +34,6 @@ def get_db():
         db.close()
 
 
-def get_db_instance():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
 def init_db():
     from app.models.db_user import User
     from app.models.db_chat_session import ChatSession

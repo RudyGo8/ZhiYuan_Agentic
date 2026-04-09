@@ -26,12 +26,14 @@ load_dotenv()
 API_KEY = os.getenv("ARK_API_KEY")
 MODEL = os.getenv("MODEL")
 BASE_URL = os.getenv("BASE_URL")
-MODEL_INPUT_PRICE_PER_1K = float(os.getenv("MODEL_INPUT_PRICE_PER_1K", "0"))
-MODEL_OUTPUT_PRICE_PER_1K = float(os.getenv("MODEL_OUTPUT_PRICE_PER_1K", "0"))
-COST_CURRENCY = os.getenv("COST_CURRENCY", "CNY")
 AGENT_RECURSION_LIMIT = max(8, int(os.getenv("AGENT_RECURSION_LIMIT", "16")))
 MCP_PREFETCH_MAX_SOURCES = max(1, int(os.getenv("MCP_PREFETCH_MAX_SOURCES", "2")))
 MCP_PREFETCH_MAX_TOOLS_PER_SOURCE = max(1, int(os.getenv("MCP_PREFETCH_MAX_TOOLS_PER_SOURCE", "1")))
+MANDATORY_RAG_TOOL_INSTRUCTION = (
+    "执行约束：本轮回答前必须先调用一次 search_knowledge_base（RAG 检索）；"
+    "若返回 TOOL_CALL_LIMIT_REACHED 或无相关结果，不要重复调用，"
+    "直接基于现有证据给出结论并明确说明限制。"
+)
 
 
 def _normalize_usage(usage: dict | None) -> dict | None:
@@ -89,6 +91,15 @@ def _build_mcp_summary(mcp_calls: list[dict] | None) -> dict:
         "failed": failed,
         "sources": sources,
     }
+
+
+def _append_mandatory_rag_instruction(skill_prompt: str) -> str:
+    content = (skill_prompt or "").rstrip()
+    if MANDATORY_RAG_TOOL_INSTRUCTION in content:
+        return content
+    if not content:
+        return MANDATORY_RAG_TOOL_INSTRUCTION
+    return f"{content}\n\n{MANDATORY_RAG_TOOL_INSTRUCTION}"
 
 
 class ConversationStorage:
@@ -346,12 +357,11 @@ def create_agent_instance(extra_tools: list | None = None):
         tools=tools,
         system_prompt=(
             "You are a helpful AI assistant named 知源 Assistant.You were developed by Rudy."
-            "Use tools when needed for factual and grounded answers. "
-            "For questions related to documents or knowledge base, call search_knowledge_base first, but at most once per turn. "
+            "Before every final answer, you MUST call search_knowledge_base exactly once. "
             "If search_knowledge_base returns TOOL_CALL_LIMIT_REACHED or no relevant documents, do not retry it; proceed with existing evidence. "
             "When the user needs latest status/change/alerts, you may call available MCP read-only tools. "
             "Avoid repeatedly calling the same MCP source unless new evidence is required. "
-            "For weather questions, use get_current_weather tool. "
+            "For weather questions, you may additionally use get_current_weather after the required search_knowledge_base call. "
             "If evidence is insufficient, explicitly state limitations."
         ),
     )
@@ -463,11 +473,7 @@ def chat_with_agent(user_text: str, user_id: str = "default_user", session_id: s
             prefetched_sources = []
         if prefetched_context:
             skill_prompt = f"{skill_prompt}\n\n{prefetched_context}"
-        if getattr(plan, "use_mcp", False):
-            skill_prompt = (
-                f"{skill_prompt}\n\n"
-                "执行约束：优先调用一次 search_knowledge_base；若提示已达调用上限或无相关结果，不要重复调用，直接基于现有证据给结论。"
-            )
+        skill_prompt = _append_mandatory_rag_instruction(skill_prompt)
         messages.append(HumanMessage(content=skill_prompt))
 
         result = agent.invoke(
@@ -553,11 +559,7 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
         prefetched_sources = []
     if prefetched_context:
         skill_prompt = f"{skill_prompt}\n\n{prefetched_context}"
-    if getattr(plan, "use_mcp", False):
-        skill_prompt = (
-            f"{skill_prompt}\n\n"
-            "执行约束：优先调用一次 search_knowledge_base；若提示已达调用上限或无相关结果，不要重复调用，直接基于现有证据给结论。"
-        )
+    skill_prompt = _append_mandatory_rag_instruction(skill_prompt)
     messages.append(HumanMessage(content=skill_prompt))
 
     full_response = ""
