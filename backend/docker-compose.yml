@@ -96,7 +96,7 @@ services:
       - MILVUS_URL=standalone:19530  
       - PORT=3000
     ports:
-      - "8080:3000"
+      - "8081:3000"
     depends_on:
       - standalone
     networks:

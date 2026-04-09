@@ -47,7 +47,7 @@ def build_default_plan(use_mcp: bool = False, mcp_sources: list[str] | None = No
         output_template="",
     )
 
-`r`n`r`ndef load_skill_definitions() -> list[SkillDefinition]:
+def load_skill_definitions() -> list[SkillDefinition]:
     root = _skillpacks_dir()
     if not root.exists():
         return []

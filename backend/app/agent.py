@@ -446,34 +446,60 @@ def _prefetch_mcp_context(user_text: str, plan) -> tuple[str, list[str]]:
     return "\n".join(lines), sources
 
 
-def chat_with_agent(user_text: str, user_id: str = "default_user", session_id: str = "default_session"):
-    messages = storage.load(user_id, session_id)
-    plan = route_skill(user_text)
+def _initialize_turn(plan) -> None:
     set_turn_policy(plan.use_mcp, plan.mcp_sources)
     reset_mcp_trace()
-
     get_last_rag_context(clear=True)
     reset_tool_call_guards()
 
+
+def _prepare_messages(messages: list) -> list:
+    if len(messages) <= 50:
+        return messages
+    summary = summarize_old_messages(model, messages[:40])
+    return [SystemMessage(content=f"之前的对话摘要：\n{summary}")] + messages[40:]
+
+
+def _build_turn_prompt(user_text: str, plan, user_id: str) -> tuple[str, list[str]]:
+    skill_prompt = build_skill_prompt(user_text, plan)
+    prefetched_sources: list[str] = []
     try:
-        if len(messages) > 50:
-            summary = summarize_old_messages(model, messages[:40])
+        prefetched_context, prefetched_sources = _prefetch_mcp_context(user_text, plan)
+    except Exception as exc:
+        logger.warning("mcp_context_prefetch_failed user_id=%s err=%s", user_id, exc)
+        prefetched_context = ""
+        prefetched_sources = []
 
-            messages = [
-                           SystemMessage(content=f"之前的对话摘要：\n{summary}")
-                       ] + messages[40:]
+    if prefetched_context:
+        skill_prompt = f"{skill_prompt}\n\n{prefetched_context}"
+    skill_prompt = _append_mandatory_rag_instruction(skill_prompt)
+    return skill_prompt, prefetched_sources
 
-        skill_prompt = build_skill_prompt(user_text, plan)
-        prefetched_sources: list[str] = []
-        try:
-            prefetched_context, prefetched_sources = _prefetch_mcp_context(user_text, plan)
-        except Exception as exc:
-            logger.warning("mcp_context_prefetch_failed user_id=%s err=%s", user_id, exc)
-            prefetched_context = ""
-            prefetched_sources = []
-        if prefetched_context:
-            skill_prompt = f"{skill_prompt}\n\n{prefetched_context}"
-        skill_prompt = _append_mandatory_rag_instruction(skill_prompt)
+
+def _collect_rag_trace(plan, usage: dict | None, prefetched_sources: list[str]) -> dict:
+    rag_context = get_last_rag_context(clear=True)
+    rag_trace = rag_context.get("rag_trace") if rag_context else None
+    if not isinstance(rag_trace, dict):
+        rag_trace = {}
+
+    mcp_calls = get_mcp_trace(clear=True)
+    rag_trace["token_usage"] = _estimate_cost(usage)
+    rag_trace["skill"] = plan.to_trace()
+    rag_trace["mcp_calls"] = mcp_calls
+    rag_trace["mcp_summary"] = _build_mcp_summary(mcp_calls)
+    rag_trace["mcp_prefetch_sources"] = prefetched_sources
+    rag_trace["mcp_used"] = bool(mcp_calls)
+    return rag_trace
+
+
+def chat_with_agent(user_text: str, user_id: str = "default_user", session_id: str = "default_session"):
+    messages = storage.load(user_id, session_id)
+    plan = route_skill(user_text)
+    _initialize_turn(plan)
+
+    try:
+        messages = _prepare_messages(messages)
+        skill_prompt, prefetched_sources = _build_turn_prompt(user_text, plan, user_id)
         messages.append(HumanMessage(content=skill_prompt))
 
         result = agent.invoke(
@@ -499,18 +525,7 @@ def chat_with_agent(user_text: str, user_id: str = "default_user", session_id: s
             response_content = str(result)
 
         messages.append(AIMessage(content=response_content))
-
-        rag_context = get_last_rag_context(clear=True)
-        rag_trace = rag_context.get("rag_trace") if rag_context else None
-        if not isinstance(rag_trace, dict):
-            rag_trace = {}
-        mcp_calls = get_mcp_trace(clear=True)
-        rag_trace["token_usage"] = _estimate_cost(usage)
-        rag_trace["skill"] = plan.to_trace()
-        rag_trace["mcp_calls"] = mcp_calls
-        rag_trace["mcp_summary"] = _build_mcp_summary(mcp_calls)
-        rag_trace["mcp_prefetch_sources"] = prefetched_sources
-        rag_trace["mcp_used"] = bool(mcp_calls)
+        rag_trace = _collect_rag_trace(plan, usage, prefetched_sources)
 
         extra_message_data = [None] * (len(messages) - 1) + [{"rag_trace": rag_trace}]
         storage.save(user_id, session_id, messages, extra_message_data=extra_message_data)
@@ -527,11 +542,7 @@ def chat_with_agent(user_text: str, user_id: str = "default_user", session_id: s
 async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", session_id: str = "default_session"):
     messages = storage.load(user_id, session_id)
     plan = route_skill(user_text)
-    set_turn_policy(plan.use_mcp, plan.mcp_sources)
-    reset_mcp_trace()
-
-    get_last_rag_context(clear=True)
-    reset_tool_call_guards()
+    _initialize_turn(plan)
 
     output_queue = asyncio.Queue()
 
@@ -541,25 +552,13 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
 
     set_rag_step_queue(_RagStepProxy())
 
-    if len(messages) > 50:
-        summary = summarize_old_messages(model, messages[:40])
-        messages = [SystemMessage(content=f"之前的对话摘要：\n{summary}")] + messages[40:]
+    messages = _prepare_messages(messages)
 
     if getattr(plan, "use_mcp", False):
         # 先发一个进度事件，避免 MCP 预取较慢时前端长时间无反馈。
         yield f"data: {json.dumps({'type': 'rag_step', 'step': {'icon': '⏳', 'label': '处理中', 'detail': '正在获取外部实时证据...'}})}\n\n"
 
-    skill_prompt = build_skill_prompt(user_text, plan)
-    prefetched_sources: list[str] = []
-    try:
-        prefetched_context, prefetched_sources = _prefetch_mcp_context(user_text, plan)
-    except Exception as exc:
-        logger.warning("mcp_context_prefetch_failed user_id=%s err=%s", user_id, exc)
-        prefetched_context = ""
-        prefetched_sources = []
-    if prefetched_context:
-        skill_prompt = f"{skill_prompt}\n\n{prefetched_context}"
-    skill_prompt = _append_mandatory_rag_instruction(skill_prompt)
+    skill_prompt, prefetched_sources = _build_turn_prompt(user_text, plan, user_id)
     messages.append(HumanMessage(content=skill_prompt))
 
     full_response = ""
@@ -568,7 +567,7 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
     async def _agent_worker():
         nonlocal full_response, stream_usage
         try:
-            async for msg, metadata in agent.astream(
+            async for msg, _metadata in agent.astream(
                 {"messages": messages},
                 stream_mode="messages",
                 config={"recursion_limit": AGENT_RECURSION_LIMIT},
@@ -622,17 +621,7 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
             agent_task.cancel()
         reset_turn_policy()
 
-    rag_context = get_last_rag_context(clear=True)
-    rag_trace = rag_context.get("rag_trace") if rag_context else None
-    if not isinstance(rag_trace, dict):
-        rag_trace = {}
-    mcp_calls = get_mcp_trace(clear=True)
-    rag_trace["token_usage"] = _estimate_cost(stream_usage)
-    rag_trace["skill"] = plan.to_trace()
-    rag_trace["mcp_calls"] = mcp_calls
-    rag_trace["mcp_summary"] = _build_mcp_summary(mcp_calls)
-    rag_trace["mcp_prefetch_sources"] = prefetched_sources
-    rag_trace["mcp_used"] = bool(mcp_calls)
+    rag_trace = _collect_rag_trace(plan, stream_usage, prefetched_sources)
 
     tool_used = bool(rag_trace.get("tool_used")) if isinstance(rag_trace, dict) else False
     tool_name = rag_trace.get("tool_name") if isinstance(rag_trace, dict) else None
