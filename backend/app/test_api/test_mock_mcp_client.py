@@ -17,7 +17,7 @@ async def main() -> None:
     print("mcp_sources:", mcp_client_manager.available_sources())
     print("agent_external_tools:", rebuild_agent_with_external_tools())
 
-    for source in ("db", "log", "git"):
+    for source in ("db", "git"):
         items = mcp_client_manager.query_source(source, "payment api latest status")
         print(f"{source}_result_count:", len(items))
         if items:
