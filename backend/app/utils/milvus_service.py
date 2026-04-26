@@ -22,7 +22,6 @@ class MilvusService:
 
     def init_collection(self, dense_dim: int = 1536, force_recreate: bool = False):
         client = self._get_client()
-        
         if force_recreate or not client.has_collection(self.collection_name):
             if client.has_collection(self.collection_name):
                 try:
@@ -49,6 +48,7 @@ class MilvusService:
             client.create_collection(collection_name=self.collection_name, schema=schema, index_params=index_params)
         
         try:
+            # 加载到内存，持久化
             client.load_collection(self.collection_name)
         except Exception:
             pass
@@ -82,7 +82,8 @@ class MilvusService:
             param={"metric_type": "IP", "params": {"drop_ratio_search": 0.2}},
             limit=top_k * 2,
         )
-        
+
+        # 倒数排序融合 ：排名越靠前，分值越大：
         reranker = RRFRanker(k=60)
         
         try:
@@ -111,7 +112,6 @@ class MilvusService:
         except Exception:
             return self.dense_search(dense_embedding, top_k)
 
-    # 混合检索异常用密集检索
     def dense_search(self, dense_embedding: list[float], top_k: int = 5) -> list[dict]:
         results = self._get_client().search(
             collection_name=self.collection_name,

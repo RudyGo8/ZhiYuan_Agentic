@@ -32,7 +32,6 @@ def _sanitize_filename(raw_name: str) -> str:
     if not name:
         raise HTTPException(status_code=400, detail="文件名不能为空")
     safe_name = Path(name).name.strip()
-    # 拒绝路径型文件名，防止目录穿越。
     if safe_name != name or safe_name in {".", ".."}:
         raise HTTPException(status_code=400, detail="非法文件名")
     return safe_name
@@ -62,15 +61,16 @@ async def list_documents(_: User = Depends(require_admin)):
         raise HTTPException(status_code=500, detail=f"获取文档列表失败: {str(e)}")
 
 
+# 上传文档 - 保存磁盘 - 切块向量化写入Milvus - 返回分块数量
 @router_r1.post("/upload", response_model=DocumentUploadResponse)
 async def upload_document(file: UploadFile = File(...), _: User = Depends(require_admin)):
     filename = _sanitize_filename(file.filename or "")
     file_lower = filename.lower()
 
     if not (
-        file_lower.endswith(".pdf")
-        or file_lower.endswith((".docx", ".doc"))
-        or file_lower.endswith((".xlsx", ".xls"))
+            file_lower.endswith(".pdf")
+            or file_lower.endswith((".docx", ".doc"))
+            or file_lower.endswith((".xlsx", ".xls"))
     ):
         raise HTTPException(status_code=400, detail="仅支持 PDF、Word 和 Excel 文档")
 

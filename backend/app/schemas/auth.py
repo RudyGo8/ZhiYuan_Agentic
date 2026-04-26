@@ -56,11 +56,6 @@ class RagTrace(BaseModel):
     retrieved_chunks: Optional[list[dict[str, Any]]] = None
 
 
-class ChatResponse(BaseModel):
-    response: str
-    rag_trace: Optional[RagTrace] = None
-
-
 class MessageInfo(BaseModel):
     type: str
     content: str

@@ -102,7 +102,7 @@ def _format_docs(docs: List[dict]) -> str:
     return "\n\n---\n\n".join(chunks)
 
 
-# 初始检索节点
+# 初始检索
 def retrieve_initial(state: RAGState) -> RAGState:
     query = state["question"]
     emit_rag_step("🔍", "正在检索知识库...", f"查询: {query[:50]}")
@@ -112,7 +112,6 @@ def retrieve_initial(state: RAGState) -> RAGState:
     retrieve_meta = retrieved.get("meta", {})
     context = _format_docs(results)
 
-    # 展示流程
     emit_rag_step(
         "🔎",
         "混合检索召回",
@@ -166,8 +165,8 @@ def retrieve_initial(state: RAGState) -> RAGState:
     }
 
 
+# 相关性评估
 def grade_documents_node(state: RAGState) -> RAGState:
-    '''相关性评估'''
     grader = _get_grader_model()
     emit_rag_step("📊", "正在评估文档相关性...")
 
@@ -212,7 +211,7 @@ def grade_documents_node(state: RAGState) -> RAGState:
     return {"route": route, "rag_trace": rag_trace}
 
 
-# 查询重写节点
+# 重写分支
 def rewrite_question_node(state: RAGState) -> RAGState:
     question = state["question"]
     emit_rag_step("✏️", "正在重写查询...")
@@ -231,7 +230,7 @@ def rewrite_question_node(state: RAGState) -> RAGState:
         )
         try:
             decision = router.with_structured_output(RewriteStrategy).invoke(
-             [{"role": "user", "content": prompt}]
+                [{"role": "user", "content": prompt}]
             )
             strategy = decision.strategy
         except Exception:
@@ -294,7 +293,7 @@ def retrieve_expanded(state: RAGState) -> RAGState:
     if strategy in ("hyde", "complex"):
         hypothetical_doc = state.get("hypothetical_doc") or generate_hypothetical_document(state["question"])
         retrieved_hyde = retrieve_documents(hypothetical_doc, top_k=5)
-        # 仅保留用于融合的分支结果，避免重复追加。
+        # 再次走检索
         hyde_docs = retrieved_hyde.get("docs", [])
         results.extend(hyde_docs)
         hyde_meta = retrieved_hyde.get("meta", {})
@@ -411,7 +410,6 @@ def retrieve_expanded(state: RAGState) -> RAGState:
 # 构建 LangGraph 状态流
 def build_rag_graph():
     # 状态流定义
-
     graph = StateGraph(RAGState)
     graph.add_node("retrieve_initial", retrieve_initial)
     graph.add_node("grade_documents", grade_documents_node)

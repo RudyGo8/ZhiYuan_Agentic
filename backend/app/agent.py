@@ -20,6 +20,8 @@ from app.mcp.policy import reset_turn_policy, set_turn_policy
 from app.mcp.trace import get_mcp_trace, reset_mcp_trace
 from app.skills.router import build_skill_prompt, route_skill
 from datetime import datetime
+from app.services.intent_service import intent_service
+from app.services.planner_service import planner_service
 
 load_dotenv()
 
@@ -47,7 +49,14 @@ def _normalize_usage(usage: dict | None) -> dict | None:
         "output_tokens": int(out_tokens),
         "total_tokens": int(total_tokens),
     }
-
+def _to_dict(value):
+    if value is None:
+        return None
+    if hasattr(value, "model_dump"):
+        return value.model_dump()
+    if hasattr(value, "dict"):
+        return value.dict()
+    return value
 
 def _extract_usage_from_message(msg) -> dict | None:
     if msg is None:
@@ -360,11 +369,12 @@ def create_agent_instance(extra_tools: list | None = None):
         tools=tools,
         system_prompt=(
             "You are a helpful AI assistant named 知源 Assistant.You were developed by Rudy."
-            "Before every final answer, you MUST call search_knowledge_base exactly once. "
+            "Use search_knowledge_base when the user asks about uploaded documents, project knowledge, internal knowledge, or questions that require evidence grounding.For greetings, "
+            "simple reasoning, general programming knowledge, or casual questions, answer directly without calling search_knowledge_base."
             "If search_knowledge_base returns TOOL_CALL_LIMIT_REACHED or no relevant documents, do not retry it; proceed with existing evidence. "
             "When the user needs latest status/change/alerts, you may call available MCP read-only tools. "
             "Avoid repeatedly calling the same MCP source unless new evidence is required. "
-            "For weather questions, you may additionally use get_current_weather after the required search_knowledge_base call. "
+            "For weather questions, use get_current_weather when current weather information is needed. "
             "If evidence is insufficient, explicitly state limitations."
         ),
     )
@@ -449,10 +459,12 @@ def _prefetch_mcp_context(user_text: str, plan) -> tuple[str, list[str]]:
 
 
 def _initialize_turn(plan) -> None:
-    set_turn_policy(plan.use_mcp, plan.mcp_sources)
+    set_turn_policy(plan.use_mcp, plan.mcp_sources, getattr(plan, "allowed_tools", None))
     reset_mcp_trace()
     get_last_rag_context(clear=True)
     reset_tool_call_guards()
+
+
 
 
 def _prepare_messages(messages: list) -> list:
@@ -475,11 +487,12 @@ def _build_turn_prompt(user_text: str, plan, user_id: str) -> tuple[str, list[st
 
     if prefetched_context:
         skill_prompt = f"{skill_prompt}\n\n{prefetched_context}"
-    skill_prompt = _append_mandatory_rag_instruction(skill_prompt)
+    if plan.require_rag:
+        skill_prompt = _append_mandatory_rag_instruction(skill_prompt)
     return skill_prompt, prefetched_sources
 
 
-def _collect_rag_trace(plan, usage: dict | None, prefetched_sources: list[str]) -> dict:
+def _collect_rag_trace(plan, usage: dict | None, prefetched_sources: list[str], intent=None, execution_plan=None) -> dict:
     rag_context = get_last_rag_context(clear=True)
     rag_trace = rag_context.get("rag_trace") if rag_context else None
     if not isinstance(rag_trace, dict):
@@ -492,61 +505,30 @@ def _collect_rag_trace(plan, usage: dict | None, prefetched_sources: list[str]) 
     rag_trace["mcp_summary"] = _build_mcp_summary(mcp_calls)
     rag_trace["mcp_prefetch_sources"] = prefetched_sources
     rag_trace["mcp_used"] = bool(mcp_calls)
+    rag_trace["intent"] = _to_dict(intent)
+    rag_trace["execution_plan"] = _to_dict(execution_plan)
     return rag_trace
 
 
-def chat_with_agent(user_text: str, user_id: str = "default_user", session_id: str = "default_session"):
-    messages = storage.load(user_id, session_id)
-    plan = route_skill(user_text)
-    _initialize_turn(plan)
-
-    try:
-        messages = _prepare_messages(messages)
-        skill_prompt, prefetched_sources = _build_turn_prompt(user_text, plan, user_id)
-        messages.append(HumanMessage(content=skill_prompt))
-
-        result = agent.invoke(
-            {"messages": messages},
-            config={"recursion_limit": AGENT_RECURSION_LIMIT},
-        )
-
-        response_content = ""
-        usage = None
-        if isinstance(result, dict):
-            if "output" in result:
-                response_content = result["output"]
-            elif "messages" in result and result["messages"]:
-                msg = result["messages"][-1]
-                response_content = getattr(msg, "content", str(msg))
-                usage = _extract_usage_from_message(msg)
-            else:
-                response_content = str(result)
-        elif hasattr(result, "content"):
-            response_content = result.content
-            usage = _extract_usage_from_message(result)
-        else:
-            response_content = str(result)
-
-        messages.append(AIMessage(content=response_content))
-        rag_trace = _collect_rag_trace(plan, usage, prefetched_sources)
-
-        extra_message_data = [None] * (len(messages) - 1) + [{"rag_trace": rag_trace}]
-        storage.save(user_id, session_id, messages, extra_message_data=extra_message_data)
-
-        return {
-            "response": response_content,
-            "rag_trace": rag_trace,
-        }
-    finally:
-        reset_turn_policy()
-
-
-# 服务端事件流式输出
+# 流式生成器
 async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", session_id: str = "default_session"):
     messages = storage.load(user_id, session_id)
-    plan = route_skill(user_text)
-    _initialize_turn(plan)
+    messages = _prepare_messages(messages)
+    intent = intent_service.classify(user_text)
+    execution_plan = planner_service.create_plan(user_text, intent)
 
+    skill_plan = route_skill(user_text)
+
+    if intent.required_knowledge_base:
+        skill_plan.require_rag = True
+
+    if intent.required_realtime and "mcp" in intent.tool_candidates:
+        skill_plan.use_mcp = True
+        skill_plan.mcp_sources = skill_plan.mcp_sources or ["git"]
+
+    _initialize_turn(skill_plan)
+
+    # 队列
     output_queue = asyncio.Queue()
 
     class _RagStepProxy:
@@ -555,13 +537,13 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
 
     set_rag_step_queue(_RagStepProxy())
 
-    messages = _prepare_messages(messages)
 
-    if getattr(plan, "use_mcp", False):
-        # 先发一个进度事件，避免 MCP 预取较慢时前端长时间无反馈。
+
+    if getattr(skill_plan, "use_mcp", False):
+        # mcp进度事件
         yield f"data: {json.dumps({'type': 'rag_step', 'step': {'icon': '⏳', 'label': '处理中', 'detail': '正在获取外部实时证据...'}})}\n\n"
 
-    skill_prompt, prefetched_sources = _build_turn_prompt(user_text, plan, user_id)
+    skill_prompt, prefetched_sources = _build_turn_prompt(user_text, skill_plan, user_id)
     messages.append(HumanMessage(content=skill_prompt))
 
     full_response = ""
@@ -603,6 +585,7 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
         finally:
             await output_queue.put(None)
 
+    # 后台任务
     agent_task = asyncio.create_task(_agent_worker())
 
     try:
@@ -624,7 +607,7 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
             agent_task.cancel()
         reset_turn_policy()
 
-    rag_trace = _collect_rag_trace(plan, stream_usage, prefetched_sources)
+    rag_trace = _collect_rag_trace(skill_plan, stream_usage, prefetched_sources, intent, execution_plan)
 
     tool_used = bool(rag_trace.get("tool_used")) if isinstance(rag_trace, dict) else False
     tool_name = rag_trace.get("tool_name") if isinstance(rag_trace, dict) else None

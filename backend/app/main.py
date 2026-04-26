@@ -9,8 +9,6 @@ from pathlib import Path
 if __name__ == "__main__" and __package__ is None:
     import sys
 
-    # 支持直接运行该文件：`python backend/app/main.py`
-    # 并避免本地 `app/mcp` 目录遮蔽第三方 `mcp` 包。
     backend_dir = Path(__file__).resolve().parents[1]
     app_dir = Path(__file__).resolve().parent
     sys.path = [p for p in sys.path if Path(p).resolve() != app_dir]

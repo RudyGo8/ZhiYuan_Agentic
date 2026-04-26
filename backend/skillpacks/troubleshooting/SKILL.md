@@ -1,33 +1,39 @@
-# 故障排查 Skill
+---
+name: troubleshooting
+description: Troubleshoot failures, abnormal status, empty results, and regressions. Use when user asks why something failed and asks for evidence-based diagnosis.
+compatibility: Requires MCP mysql/git sources when available.
+metadata:
+  display_name: 故障排查
+use-mcp: true
+mcp-sources:
+  - mysql
+  - git
+keywords:
+  - 报错
+  - 错误
+  - 失败
+  - 异常
+  - 排查
+  - 原因
+  - error
+  - fail
+  - failed
+  - bug
+  - issue
+priority: 110
+allowed-tools: search_knowledge_base mcp_search_mysql mcp_search_git
+---
 
-## 适用场景
-当用户询问任务为什么失败、状态为什么异常、结果为什么为空、数据库记录是否异常、某次改动是否引入问题时使用本 skill。
+# 故障排查
 
-## 目标
-结合实时数据和代码上下文，给出面向排查的结构化分析，而不是只给泛泛建议。
+## 使用规则
+1. 先定义问题现象，再给原因假设，不要跳结论。
+2. 需要实时证据时，优先查询 `mysql` 和 `git`。
+3. 若证据不足，明确说明“当前结论为假设”。
 
-## 处理原则
-1. 优先明确“问题现象”是什么。
-2. 如果涉及任务状态、数据库记录、历史结果，优先调用 mysql MCP。
-3. 如果涉及最近改动、代码逻辑、提交影响，优先调用 git MCP。
-4. 如果证据不足，不要直接定性根因，应给出可能原因和建议排查方向。
-5. 如果 MCP 调用失败，要明确说明分析受限。
-
-## 推荐处理步骤
-1. 明确问题现象：报错、失败、卡住、无结果、状态异常。
-2. 判断更偏数据库/任务问题，还是更偏代码变更问题。
-3. 调用 mysql 或 git MCP 获取实时上下文。
-4. 归纳最可能的原因、影响范围和建议排查步骤。
-5. 输出结构化分析结论。
-
-## 输出要求
-- 先说明问题现象
-- 再列可能原因
-- 再列已有证据
-- 再给排查建议
-- 最后给出初步结论
-
-## 不要这样做
-- 不要在没有证据时直接下根因结论
-- 不要只说“检查日志”这种空泛建议
-- 不要忽略最近代码改动和实时数据
+## 输出结构
+1. 问题现象
+2. 可能原因
+3. 已有证据
+4. 建议排查步骤
+5. 初步结论

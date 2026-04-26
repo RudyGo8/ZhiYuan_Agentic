@@ -1,33 +1,38 @@
-# 数据库字段分析 Skill
+---
+name: db-schema
+description: Analyze MySQL table schema, columns, indexes and relationships. Use when the user asks database/table/column/DDL questions.
+compatibility: Requires MCP mysql source when available.
+metadata:
+  display_name: 数据库字段分析
+use-mcp: true
+mcp-sources:
+  - mysql
+keywords:
+  - 数据库
+  - 表
+  - 字段
+  - 列
+  - 索引
+  - 主键
+  - 外键
+  - schema
+  - ddl
+  - sql
+  - mysql
+priority: 100
+allowed-tools: search_knowledge_base mcp_search_mysql
+---
 
-## 适用场景
-当用户询问数据库表结构、字段含义、表关系、索引设计、SQL 涉及哪些表字段、某张表是做什么的，这类问题时使用本 skill。
+# 数据库字段分析
 
-## 目标
-基于数据库实时信息，给出结构化、可解释的数据库分析结果，而不是仅根据名称猜测。
+## 使用规则
+1. 优先基于 `mysql` 实时结果给结论。
+2. 如果证据不足，不要臆测字段含义，明确说明限制。
+3. 如果用户提供 SQL，先识别涉及表和字段，再解释关系与作用。
 
-## 处理原则
-1. 优先调用 mysql MCP 获取实时表结构或字段信息。
-2. 如果字段用途没有直接证据，不要主观臆断。
-3. 若用户给出 SQL，先识别涉及表和字段，再解释其含义。
-4. 若问题与表关系有关，要说明主表、关联表、连接字段。
-5. 若 MCP 调用失败，要明确说明数据库实时信息未获取成功。
-
-## 推荐处理步骤
-1. 识别用户提到的表、字段、SQL 或业务对象。
-2. 调用 mysql MCP 获取表结构、字段信息、索引信息。
-3. 归纳字段作用、主键、外键、常见业务含义。
-4. 如有多张表，说明它们的关系和作用分工。
-5. 输出结构化结论。
-
-## 输出要求
-- 先给出涉及表
-- 再给出涉及字段
-- 再解释字段作用
-- 如存在表关系，说明关联方式
-- 最后给出结论或建议
-
-## 不要这样做
-- 不要把字段名看一眼就强行下结论
-- 不要把知识库里的旧信息当成当前数据库真相
-- 不要在没有证据时编造索引、外键或字段含义
+## 输出结构
+1. 涉及表
+2. 涉及字段
+3. 字段作用说明
+4. 表之间关系
+5. 结论

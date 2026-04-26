@@ -8,7 +8,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.models.db_user import User
 from app.schemas.auth import (
     ChatRequest,
-    ChatResponse,
     MessageInfo,
     SessionDeleteResponse,
     SessionInfo,
@@ -23,14 +22,6 @@ router_r1 = APIRouter(
     prefix="/api/r1/chat",
     tags=["chat"]
 )
-
-
-@router_r1.post("", response_model=ChatResponse)
-async def chat_endpoint(request: ChatRequest, current_user: User = Depends(get_current_user)):
-    """非流式输出"""
-    session_id = request.session_id or "default_session"
-    result = chat_service.chat(request.message, current_user.username, session_id)
-    return ChatResponse(**result)
 
 
 @router_r1.post("/stream")

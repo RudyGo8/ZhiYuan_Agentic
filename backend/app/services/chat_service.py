@@ -3,15 +3,11 @@
 @Author: GeChao
 @File: chat_service.py
 '''
-from app.agent import chat_with_agent, chat_with_agent_stream, storage
+from app.agent import chat_with_agent_stream, storage
 
 
 class ChatService:
     """聊天业务编排层。"""
-
-    @staticmethod
-    def chat(user_text: str, user_id: str, session_id: str) -> dict:
-        return chat_with_agent(user_text, user_id, session_id)
 
     @staticmethod
     def stream_chat(user_text: str, user_id: str, session_id: str):

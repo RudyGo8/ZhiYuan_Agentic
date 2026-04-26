@@ -104,7 +104,7 @@ def _request_weather(city: str, extensions: str) -> dict:
 
 
 def get_current_weather(location: str, extensions: Optional[str] = "base") -> str:
-    """天气API：优先用 adcode 查询，查不到时回退原始地区名。"""
+    """工具：查天气"""
     if not location:
         return "location参数不能为空"
     if extensions not in ("base", "all"):
@@ -182,7 +182,7 @@ def get_current_weather(location: str, extensions: Optional[str] = "base") -> st
 
 @tool("search_knowledge_base")
 def search_knowledge_base(query: str) -> str:
-    """查询知识库"""
+    """工具：检索知识库"""
     calls_this_turn = _KNOWLEDGE_TOOL_CALLS_THIS_TURN.get()
     if calls_this_turn >= 1:
         return (

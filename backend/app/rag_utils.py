@@ -46,7 +46,7 @@ def retrieve_documents(query: str, top_k: int = 5) -> dict:
         retrieval_mode = "dense"
         results = milvus_service.dense_search(dense_embedding, top_k * 2)
 
-    # 重排
+    # rerank 重排：让模型再一次生成相关性分数
     rerank_enabled = False
     rerank_applied = False
     rerank_model = None
@@ -60,6 +60,7 @@ def retrieve_documents(query: str, top_k: int = 5) -> dict:
     if rerank_api_key and rerank_model_name and rerank_host and results:
         rerank_enabled = True
         try:
+            # 拿前 10 条，而且每文本块只取前 1000 字符
             rerank_docs = [r["text"][:1000] for r in results[:10]]
             rerank_response = requests.post(
                 rerank_host,
@@ -90,7 +91,7 @@ def retrieve_documents(query: str, top_k: int = 5) -> dict:
         except Exception as e:
             rerank_error = str(e)
 
-    # 自动合并
+    # 自动合并 小段 -> 大段  同父去重
     auto_merge_enabled = AUTO_MERGE_ENABLED
     auto_merge_applied = False
     auto_merge_replaced_chunks = 0
@@ -130,9 +131,8 @@ def retrieve_documents(query: str, top_k: int = 5) -> dict:
         except Exception:
             pass
 
-    # 添加 RRF 排名
     for idx, r in enumerate(results):
-        r["rrf_rank"] = idx + 1
+        r["final_rank"] = idx + 1
 
     # 构建元数据
     meta = {

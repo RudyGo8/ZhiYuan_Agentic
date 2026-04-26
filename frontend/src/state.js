@@ -8,7 +8,6 @@ export function createInitialState(config) {
     sessionId: `session_${Date.now()}`,
     sessions: [],
     showHistorySidebar: false,
-    isComposing: false,
     documents: [],
     documentsLoading: false,
     selectedFile: null,

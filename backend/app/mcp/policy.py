@@ -28,10 +28,15 @@ SOURCE_ALIASES = {
 
 _MCP_ALLOWED_THIS_TURN: ContextVar[bool] = ContextVar("_MCP_ALLOWED_THIS_TURN", default=False)
 _MCP_ALLOWED_SOURCES: ContextVar[set[str]] = ContextVar("_MCP_ALLOWED_SOURCES", default=set())
+_MCP_ALLOWED_TOOLS: ContextVar[set[str]] = ContextVar("_MCP_ALLOWED_TOOLS", default=set())
 
 
 def _normalize_source_name(source: str) -> str:
     return (source or "").strip().lower()
+
+
+def _normalize_tool_name(tool_name: str) -> str:
+    return (tool_name or "").strip().lower()
 
 
 def _normalized_set(value: str) -> set[str]:
@@ -77,15 +82,22 @@ def allow_tool(tool_name: str, description: str = "") -> tuple[bool, str | None]
     return True, source
 
 
-def set_turn_policy(allowed: bool, allowed_sources: list[str] | None = None) -> None:
+def set_turn_policy(
+    allowed: bool,
+    allowed_sources: list[str] | None = None,
+    allowed_tools: list[str] | None = None,
+) -> None:
     _MCP_ALLOWED_THIS_TURN.set(bool(allowed))
     source_set = {_normalize_source_name(item) for item in (allowed_sources or []) if item and item.strip()}
+    tool_set = {_normalize_tool_name(item) for item in (allowed_tools or []) if item and item.strip()}
     _MCP_ALLOWED_SOURCES.set(source_set)
+    _MCP_ALLOWED_TOOLS.set(tool_set)
 
 
 def reset_turn_policy() -> None:
     _MCP_ALLOWED_THIS_TURN.set(False)
     _MCP_ALLOWED_SOURCES.set(set())
+    _MCP_ALLOWED_TOOLS.set(set())
 
 
 def can_call_source(source: str) -> bool:
@@ -97,5 +109,15 @@ def can_call_source(source: str) -> bool:
     if source not in configured:
         return False
     if per_turn and source not in per_turn:
+        return False
+    return True
+
+
+def can_call_tool(tool_name: str) -> bool:
+    if not _MCP_ALLOWED_THIS_TURN.get():
+        return False
+    allowed = _MCP_ALLOWED_TOOLS.get()
+    normalized = _normalize_tool_name(tool_name)
+    if allowed and normalized not in allowed:
         return False
     return True

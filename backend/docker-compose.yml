@@ -1,4 +1,4 @@
-version: '3.5'
+
 
 services:
   mysql:
@@ -8,7 +8,7 @@ services:
       MYSQL_ROOT_PASSWORD: 123456
       MYSQL_DATABASE: langchain_app
     ports:
-      - "3307:3306"
+      - "3308:3306"
     volumes:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/mysql:/var/lib/mysql
     healthcheck:
@@ -89,6 +89,7 @@ services:
       - "9091:9091"
     depends_on:
       - "etcd"
+      - "minio"
   attu:
     container_name: milvus-attu
     image: zilliz/attu:v2.5.11  
@@ -99,9 +100,5 @@ services:
       - "8081:3000"
     depends_on:
       - standalone
-    networks:
-      - default  
 
-networks:
-  default:
-    name: milvus
+

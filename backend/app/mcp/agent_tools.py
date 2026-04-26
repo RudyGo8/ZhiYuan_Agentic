@@ -1,14 +1,17 @@
 from app.mcp.client_manager import mcp_client_manager
-from app.mcp.policy import can_call_source
+from app.mcp.policy import can_call_source, can_call_tool
 from app.tools import emit_rag_step
 
 
 def _search_source(source: str, query: str) -> str:
+    tool_name = f"mcp_search_{(source or '').strip().lower()}"
     query = (query or "").strip()
     if not query:
         return "query is required."
     if not mcp_client_manager.enabled:
         return "MCP is not available in current environment."
+    if not can_call_tool(tool_name):
+        return f"MCP tool '{tool_name}' is disabled for this request."
     if not can_call_source(source):
         return f"MCP source '{source}' is disabled for this request."
 

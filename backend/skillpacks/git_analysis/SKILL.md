@@ -1,33 +1,41 @@
-# 代码变更分析 Skill
+---
+name: git-analysis
+description: Analyze repository changes, commits and impact scope. Use when user asks what changed, where code is implemented, or impact of commits/PRs.
+compatibility: Requires MCP git source when available.
+metadata:
+  display_name: 代码变更分析
+use-mcp: true
+mcp-sources:
+  - git
+keywords:
+  - 提交
+  - 变更
+  - 改动
+  - 代码改动
+  - 最近改了什么
+  - 哪个文件
+  - 仓库
+  - 分支
+  - pr
+  - commit
+  - diff
+  - repo
+  - github
+  - gitlab
+priority: 95
+allowed-tools: search_knowledge_base mcp_search_git
+---
 
-## 适用场景
-当用户询问最近代码改了什么、某个功能在哪实现、某次提交影响了哪些文件、某个模块的入口位置、某个 PR 或 commit 的改动内容时使用本 skill。
+# 代码变更分析
 
-## 目标
-基于 Git 仓库实时上下文，帮助用户快速理解代码变更和模块关系。
+## 使用规则
+1. 先说明“改了哪些文件/模块”，再说明“改了什么”和“可能影响什么”。
+2. 对最近变更问题，优先关注最近提交。
+3. 没有证据时不要凭空推断实现细节。
 
-## 处理原则
-1. 优先调用 git MCP 获取提交记录、文件内容、diff 或仓库结构信息。
-2. 先给出“改了哪些文件/模块”，再解释“改了什么”和“影响什么”。
-3. 如果用户问题与最近改动相关，优先关注近期提交。
-4. 如果只拿到部分信息，要明确说明分析范围有限。
-5. 如果涉及业务含义，可以结合知识库补充解释，但代码事实以 git MCP 为准。
-
-## 推荐处理步骤
-1. 识别用户关心的是“提交记录”“文件位置”“模块实现”还是“影响范围”。
-2. 调用 git MCP 获取对应仓库信息。
-3. 归纳核心改动点、关键文件、可能影响模块。
-4. 如需，结合知识库说明该模块的业务含义。
-5. 输出结构化分析结果。
-
-## 输出要求
-- 明确涉及仓库或目录
-- 给出关键文件
-- 总结主要改动内容
-- 说明可能影响的模块或流程
-- 最后给出结论
-
-## 不要这样做
-- 不要在没读到代码或 diff 时凭空猜测实现细节
-- 不要把旧知识当成当前仓库状态
-- 不要只列文件名而不解释变更意义
+## 输出结构
+1. 涉及仓库/目录
+2. 关键文件
+3. 主要变更内容
+4. 可能影响的模块或流程
+5. 结论

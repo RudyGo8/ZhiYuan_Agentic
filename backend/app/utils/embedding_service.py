@@ -85,7 +85,7 @@ class EmbeddingService:
                     self._vocab_counter += 1
                 idx = self._vocab[token]
                 df = self._doc_freq.get(token, 0)
-                # 使用类 BM25 平滑，避免语料较少时稀疏向量为空。
+                # BM25 算法
                 idf = math.log((total_docs + 1.0) / (df + 0.5)) + 1.0
                 numerator = freq * (self.k1 + 1)
                 denominator = freq + self.k1 * (1 - self.b + self.b * doc_len / max(avg_doc_len, 1))
