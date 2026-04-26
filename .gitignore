@@ -1,8 +1,30 @@
-backend/volumes/...
-backend/.env
+# backend runtime data
+/backend/volumes/
+/backend/volumes/**
+
+# uploaded documents or local test files
+/backend/data/documents/
+/backend/data/documents/**
+
+# env
+/backend/.env
+.env
+
+# socket
 *.sock
-__pycache__
+
+# python
+__pycache__/
 *.pyc
+
+# logs
 *.log
 logs/
-frontend/node_modules
+
+# frontend
+/frontend/node_modules/
+node_modules/
+
+# local agent/codex
+.codex/
+.agents/
