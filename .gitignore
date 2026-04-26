@@ -1,6 +1,7 @@
 # backend runtime data
 /backend/volumes/
 /backend/volumes/**
+/backend/.idea
 
 # uploaded documents or local test files
 /backend/data/documents/
