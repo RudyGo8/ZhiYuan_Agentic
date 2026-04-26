@@ -1,0 +1,36 @@
+[project]
+name = "backend"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "docx2txt>=0.0.0",
+    "fastapi>=0.115.0",
+    "jieba>=0.0.0",
+    "langchain>=0.2.14",
+    "langchain-community>=0.2.14",
+    "langchain-core>=0.2.14",
+    "langchain-mcp-adapters>=0.1.0",
+    "langchain-openai>=0.1.0",
+    "langchain-text-splitters>=0.2.0",
+    "langgraph>=0.2.31",
+    "langsmith>=0.0.0",
+    "mcp>=1.20.0",
+    "openpyxl>=0.0.0",
+    "passlib[bcrypt]>=0.0.0",
+    "pydantic>=2.8.0",
+    "pymilvus>=2.4.0",
+    "pymysql>=1.1.0",
+    "pypdf>=0.0.0",
+    "python-dotenv>=0.0.0",
+    "python-jose[cryptography]>=0.0.0",
+    "python-multipart>=0.0.0",
+    "redis>=5.2.1",
+    "requests>=0.0.0",
+    "rich>=0.0.0",
+    "sqlalchemy>=2.0.36",
+    "tabulate>=0.0.0",
+    "unstructured>=0.0.0",
+    "uvicorn>=0.30.0",
+]

@@ -1,0 +1,25 @@
+{
+  "name": "biz_qa",
+  "display_name": "业务知识问答",
+  "description": "用于回答 AI_List_Generate 相关的业务流程、模块职责、类目匹配、生成逻辑、OCR、翻译、任务机制等问题。",
+  "keywords": [
+    "业务流程",
+    "商品上架",
+    "类目匹配",
+    "标题生成",
+    "描述生成",
+    "属性生成",
+    "翻译",
+    "ocr",
+    "任务机制",
+    "task",
+    "流程说明",
+    "系统做什么",
+    "这个系统",
+    "知识库",
+    "faq"
+  ],
+  "use_mcp": false,
+  "mcp_sources": [],
+  "priority": 80
+}

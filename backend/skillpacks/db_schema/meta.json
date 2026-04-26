@@ -1,0 +1,29 @@
+{
+  "name": "db_schema",
+  "display_name": "数据库字段分析",
+  "description": "用于分析数据库表结构、字段含义、索引、主键、外键和表之间关系。",
+  "keywords": [
+    "数据库",
+    "表",
+    "字段",
+    "列",
+    "索引",
+    "外键",
+    "主键",
+    "ddl",
+    "schema",
+    "sql",
+    "mysql",
+    "database",
+    "table",
+    "field",
+    "column",
+    "columns",
+    "index"
+  ],
+  "use_mcp": true,
+  "mcp_sources": [
+    "mysql"
+  ],
+  "priority": 100
+}
