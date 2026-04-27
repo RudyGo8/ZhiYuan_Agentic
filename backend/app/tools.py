@@ -191,7 +191,7 @@ def search_knowledge_base(query: str) -> str:
         )
     _KNOWLEDGE_TOOL_CALLS_THIS_TURN.set(calls_this_turn + 1)
 
-    from app.rag_pipeline import run_rag_graph
+    from app.rag import run_rag_graph
 
     rag_result = run_rag_graph(query)
 
