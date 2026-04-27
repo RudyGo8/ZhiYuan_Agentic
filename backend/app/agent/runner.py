@@ -12,8 +12,9 @@ from app.mcp.policy import reset_turn_policy
 from app.services.conversation_service import conversation_service as storage
 from app.services.intent_service import intent_service
 from app.services.planner_service import planner_service
-from app.skills.router import route_skill
 from app.tools import set_rag_step_queue
+
+from app.agent.runtime_policy import build_runtime_policy
 
 
 async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", session_id: str = "default_session"):
@@ -21,16 +22,7 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
     messages = prepare_messages(messages)
     intent = intent_service.classify(user_text)
     execution_plan = planner_service.create_plan(user_text, intent)
-
-    skill_plan = route_skill(user_text)
-
-    if intent.required_knowledge_base:
-        skill_plan.require_rag = True
-
-    if intent.required_realtime and "mcp" in intent.tool_candidates:
-        skill_plan.use_mcp = True
-        skill_plan.mcp_sources = skill_plan.mcp_sources or ["git"]
-
+    skill_plan = build_runtime_policy(execution_plan)
     initialize_turn(skill_plan)
 
     output_queue = asyncio.Queue()

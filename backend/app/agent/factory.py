@@ -30,7 +30,7 @@ def create_agent_instance(extra_tools: list | None = None):
         model=model,
         tools=tools,
         system_prompt=(
-            "You are a helpful AI assistant named 鐭ユ簮 Assistant.You were developed by Rudy."
+            "You are a helpful AI assistant named 知源.You were developed by Rudy."
             "Use search_knowledge_base when the user asks about uploaded documents, project knowledge, internal knowledge, or questions that require evidence grounding.For greetings, "
             "simple reasoning, general programming knowledge, or casual questions, answer directly without calling search_knowledge_base."
             "If search_knowledge_base returns TOOL_CALL_LIMIT_REACHED or no relevant documents, do not retry it; proceed with existing evidence. "

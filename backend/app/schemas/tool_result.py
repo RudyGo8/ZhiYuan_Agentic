@@ -3,7 +3,6 @@
 @Author: GeChao
 @File: tool_result.py
 '''
-from math import dist
 
 from pydantic import BaseModel
 
@@ -12,6 +11,6 @@ class ToolResult(BaseModel):
     tool_name: str
     success: bool
     content: str
-    evidence: list[dist] = []
+    evidence: list[dict] = []
     trace: dict = {}
     error: str | None = None

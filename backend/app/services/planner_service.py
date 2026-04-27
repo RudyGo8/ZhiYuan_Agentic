@@ -9,12 +9,15 @@ from app.schemas.agent_plan import AgentPlan, PlanStep
 
 class PlannerService:
     @staticmethod
-    def _step(step_id: str, step_type: str, tool: str | None = None, reason: str = "") -> PlanStep:
+    def _step(step_id: str, step_type: str, tool: str | None = None, input_key: str | None = None, output_key: str | None = None, reason: str = "", config: dict | None = None) -> PlanStep:
         return PlanStep(
             id=step_id,
             type=step_type,
             tool=tool,
-            reason=reason
+            input_key=input_key,
+            output_key=output_key,
+            reason=reason,
+            config=config or {},
         )
 
     def create_plan(self, user_text: str, intent: AgentIntent) -> AgentPlan:
@@ -28,15 +31,15 @@ class PlannerService:
             )
 
         if intent.intent == "rag_qa":
-            return self._tool_plan("rag_qa", "rag", "检索知识库")
+            return self._tool_plan("rag_qa", "search_knowledge_base", "检索知识库")
         if intent.intent == "realtime_query":
             return self._tool_plan("realtime_query", "mcp", "获取实时信息")
         if intent.intent == "database_query":
             return self._tool_plan("database_query", "database", "查询数据库")
         if intent.intent == "weather_query":
-            return self._tool_plan("weather_query", "weather", "查询天气")
+            return self._tool_plan("weather_query", "get_current_weather", "查询天气")
         return AgentPlan(
-            task_type = "unknown",
+            task_type="unknown",
             steps=[
                 self._step("load_context", "load_context", reason="加载历史会话"),
                 self._step("final_answer", "final_answer", reason="没有明确工具需求，先直接回答"),
@@ -49,11 +52,12 @@ class PlannerService:
             task_type=task_type,
             steps=[
                 self._step("load_context", "load_context", reason="加载历史会话"),
-                self._step(f"call_{tool}", "call_tool", reason=reason),
+                self._step(f"call_{tool}", "call_tool", tool=tool, reason=reason),
                 self._step("evaluate_result", "evaluate_result", reason="判断工具结果是否足够"),
                 self._step("final_answer", "final_answer", reason="生成最终回答"),
 
             ]
         )
+
 
 planner_service = PlannerService()
