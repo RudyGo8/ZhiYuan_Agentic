@@ -8,7 +8,6 @@ from app.agent import chat_with_agent_stream, storage
 
 class ChatService:
     """聊天业务编排层。"""
-
     @staticmethod
     def stream_chat(user_text: str, user_id: str, session_id: str):
         return chat_with_agent_stream(user_text, user_id, session_id)
