@@ -5,10 +5,10 @@
 '''
 from typing import List
 
-from app.rag.formatter import _format_docs
+from app.rag.formatter import format_docs
 from app.rag.services import retrieve_documents, generate_hypothetical_document
 from app.rag.state import RAGState
-from app.tools import emit_rag_step
+from app.tools.runtime import emit_rag_step
 
 
 # 初始检索
@@ -19,7 +19,7 @@ def retrieve_initial(state: RAGState) -> RAGState:
     retrieved = retrieve_documents(query, top_k=5)
     results = retrieved.get("docs", [])
     retrieve_meta = retrieved.get("meta", {})
-    context = _format_docs(results)
+    context = format_docs(results)
 
     emit_rag_step(
         "🔎",
@@ -183,7 +183,7 @@ def retrieve_expanded(state: RAGState) -> RAGState:
         item["rrf_rank"] = idx
         deduped.append(item)
 
-    context = _format_docs(deduped)
+    context = format_docs(deduped)
     emit_rag_step("✅", f"扩展检索完成，共 {len(deduped)} 个片段")
     rag_trace = state.get("rag_trace", {}) or {}
     rag_trace.update({

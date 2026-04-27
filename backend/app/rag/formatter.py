@@ -6,7 +6,7 @@
 from typing import List
 
 
-def _format_docs(docs: List[dict]) -> str:
+def format_docs(docs: List[dict]) -> str:
     if not docs:
         return ""
     chunks = []

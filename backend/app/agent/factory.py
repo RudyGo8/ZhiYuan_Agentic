@@ -5,7 +5,8 @@ from langchain.agents import create_agent
 from langchain.chat_models import init_chat_model
 
 from app.mcp.agent_tools import get_enabled_mcp_tools
-from app.tools import get_current_weather, search_knowledge_base
+from app.tools.rag_tools import search_knowledge_base
+from app.tools.weather_tools import get_current_weather
 
 load_dotenv()
 

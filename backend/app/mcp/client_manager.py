@@ -1,4 +1,5 @@
 ﻿import asyncio
+import importlib
 import json
 import os
 import re
@@ -14,8 +15,33 @@ from app.mcp.tool_registry import MCPToolEntry, build_registry
 from app.mcp.trace import append_mcp_trace, new_mcp_call
 
 _MCP_IMPORT_ERROR: str | None = None
+
+
+def _import_multi_server_mcp_client():
+    """
+    Import the external MCP adapter without letting backend/app/mcp shadow
+    the third-party top-level ``mcp`` package.
+    """
+    app_dir = Path(__file__).resolve().parents[1]
+    original_sys_path = list(sys.path)
+
+    loaded_mcp = sys.modules.get("mcp")
+    loaded_mcp_file = getattr(loaded_mcp, "__file__", "") if loaded_mcp else ""
+    if loaded_mcp_file:
+        try:
+            if Path(loaded_mcp_file).resolve().is_relative_to(app_dir):
+                sys.modules.pop("mcp", None)
+        except OSError:
+            pass
+
+    try:
+        sys.path = [p for p in sys.path if Path(p or ".").resolve() != app_dir]
+        module = importlib.import_module("langchain_mcp_adapters.client")
+        return module.MultiServerMCPClient
+    finally:
+        sys.path = original_sys_path
 try:
-    from langchain_mcp_adapters.client import MultiServerMCPClient
+    MultiServerMCPClient = _import_multi_server_mcp_client()
 except Exception:  # 可选依赖
     MultiServerMCPClient = None
     _MCP_IMPORT_ERROR = traceback.format_exc()
@@ -52,7 +78,7 @@ class MCPClientManager:
         global MultiServerMCPClient, _MCP_IMPORT_ERROR
         if MultiServerMCPClient is None:
             try:
-                from langchain_mcp_adapters.client import MultiServerMCPClient as _MSC
+                _MSC = _import_multi_server_mcp_client()
                 MultiServerMCPClient = _MSC
                 _MCP_IMPORT_ERROR = None
             except Exception:

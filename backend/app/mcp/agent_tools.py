@@ -1,6 +1,6 @@
 from app.mcp.client_manager import mcp_client_manager
 from app.mcp.policy import can_call_source, can_call_tool
-from app.tools import emit_rag_step
+from app.tools.runtime import emit_rag_step
 
 
 def _search_source(source: str, query: str) -> str:

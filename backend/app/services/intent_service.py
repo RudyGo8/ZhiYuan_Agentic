@@ -32,6 +32,20 @@ class IntentService:
         "你好", "您好", "hello", "hi", "谢谢", "thanks",
     )
 
+    MCP_INTEGRATION_KEYWORDS = (
+        "接入mcp",
+        "添加mcp",
+        "配置mcp",
+        "mcp server",
+        "mcp服务",
+        "model context protocol",
+        "stdio",
+        "sse",
+        "websocket",
+        "http mcp",
+        ".mcp.json",
+    )
+
     @staticmethod
     def _normalize(text: str) -> str:
         return (text or "").strip().lower()
@@ -72,6 +86,15 @@ class IntentService:
                 reason="需要基于知识库或文档回答",
             )
 
+        if self._contains_any(text, self.MCP_INTEGRATION_KEYWORDS):
+            return AgentIntent(
+                intent="mcp_integration",
+                need_tools=True,
+                tool_candidates=["project_file_reader", "project_code_editor", "project_shell"],
+                confidence=0.9,
+                reason="用户要求接入或配置 MCP Server",
+            )
+
         if self._contains_any(text, self.REALTIME_KEYWORDS):
             return AgentIntent(
                 intent="realtime_query",
@@ -107,6 +130,7 @@ class IntentService:
             confidence=0.5,
             reason="未识别明确工具需求",
         )
+
 
 
 intent_service = IntentService()

@@ -7,7 +7,7 @@ from app.rag.models import _get_grader_model
 from app.rag.prompts import GRADE_PROMPT
 from app.rag.schema import GradeDocuments
 from app.rag.state import RAGState
-from app.tools import emit_rag_step
+from app.tools.runtime import emit_rag_step
 
 
 # 相关性评估

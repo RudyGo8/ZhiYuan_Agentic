@@ -3,7 +3,7 @@ from langchain_core.messages import SystemMessage
 from app.agent.factory import get_model
 from app.mcp.policy import set_turn_policy
 from app.mcp.trace import reset_mcp_trace
-from app.tools import get_last_rag_context, reset_tool_call_guards
+from app.tools.runtime import get_last_rag_context, reset_tool_call_guards
 
 
 def summarize_old_messages(model, messages: list) -> str:

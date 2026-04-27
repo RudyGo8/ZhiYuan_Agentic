@@ -7,7 +7,7 @@ from app.rag.models import _get_router_model
 from app.rag.schema import RewriteStrategy
 from app.rag.services import step_back_expand, generate_hypothetical_document
 from app.rag.state import RAGState
-from app.tools import emit_rag_step
+from app.tools.runtime import emit_rag_step
 
 
 # 重写分支

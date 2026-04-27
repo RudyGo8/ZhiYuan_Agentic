@@ -3,7 +3,7 @@ import os
 from dotenv import load_dotenv
 
 from app.mcp.trace import get_mcp_trace
-from app.tools import get_last_rag_context
+from app.tools.runtime import get_last_rag_context
 
 load_dotenv()
 

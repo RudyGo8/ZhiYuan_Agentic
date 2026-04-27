@@ -25,6 +25,8 @@ from app.mcp.client_manager import mcp_client_manager
 from app.routes.common.auth import router_r1 as auth_router_r1
 from app.routes.common.chat import router_r1 as chat_router_r1
 from app.routes.common.document import router_r1 as document_router_r1
+from app.routes.common.version import router_r1 as version_router_r1
+from app.version import get_app_version
 
 # 前端打包
 FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
@@ -40,7 +42,12 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="RAG Agent API", lifespan=lifespan)
+app = FastAPI(
+    title="ZhiYuan Agentic API",
+    version=get_app_version(),
+    description=__doc__,
+    lifespan=lifespan
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -62,6 +69,7 @@ async def log_request(request: Request, call_next):
 app.include_router(auth_router_r1)
 app.include_router(chat_router_r1)
 app.include_router(document_router_r1)
+app.include_router(version_router_r1)
 
 if FRONTEND_DIST_DIR.exists():
     app.mount("/", StaticFiles(directory=str(FRONTEND_DIST_DIR), html=True), name="frontend")

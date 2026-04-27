@@ -4,8 +4,7 @@ from dotenv import load_dotenv
 
 from app.config import logger
 from app.mcp.client_manager import mcp_client_manager
-
-from app.tools import emit_rag_step
+from app.tools.runtime import emit_rag_step
 
 load_dotenv()
 

@@ -16,6 +16,7 @@ class AgentIntent(BaseModel):
         "weather_query",
         "document_management",
         "database_query",
+        "mcp_integration",
         "unknown"
     ]
     need_tools: bool
