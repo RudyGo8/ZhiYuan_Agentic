@@ -1,35 +1,29 @@
-'''
-@create_time: 2026/4/28 上午12:24
-@Author: GeChao
-@File: registry.py
-'''
-
+from dataclasses import dataclass
+from typing import Callable
 from app.tools.rag_tools import search_knowledge_base
 from app.tools.weather_tools import get_current_weather
-# from app.tools.project_tools import (
-#     ProjectFileReaderTool,
-#     ProjectCodeEditorTool,
-#     ProjectShellTool,
-# )
+
+
+@dataclass
+class ToolSpec:
+    name: str
+    tool: Callable
+    description: str
+    tags: list[str]
+    source: str | None = None
+
 
 TOOL_REGISTRY = {
-    "search_knowledge_base": search_knowledge_base,
-    "get_current_weather": get_current_weather,
-
-    # "project_file_reader": ProjectFileReaderTool(),
-    # "project_code_editor": ProjectCodeEditorTool(),
-    # "project_shell": ProjectShellTool(),
+    "get_current_weather": ToolSpec(
+        name="get_current_weather",
+        tool=get_current_weather,
+        description="查询当前天气、气温、降雨、温度等实时天气信息",
+        tags=["天气", "气温", "温度", "下雨", "weather"],
+    ),
+    "search_knowledge_base": ToolSpec(
+        name="search_knowledge_base",
+        tool=search_knowledge_base,
+        description="查询用户上传文档、知识库、项目资料、内部知识，并返回有依据的检索结果",
+        tags=["知识库", "文档", "资料", "上传", "引用", "rag"],
+    ),
 }
-
-
-def get_tool(name: str):
-    tool = TOOL_REGISTRY.get(name)
-    if tool is None:
-        raise ValueError(
-            f"工具未注册：{name}, 当前可用工具: {list(TOOL_REGISTRY.keys())}"
-        )
-    return TOOL_REGISTRY.get(name)
-
-
-def list_tools():
-    return list(TOOL_REGISTRY.keys())

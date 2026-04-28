@@ -4,7 +4,6 @@ from dotenv import load_dotenv
 from langchain.agents import create_agent
 from langchain.chat_models import init_chat_model
 
-from app.mcp.agent_tools import get_enabled_mcp_tools
 from app.tools.rag_tools import search_knowledge_base
 from app.tools.weather_tools import get_current_weather
 
@@ -16,7 +15,8 @@ BASE_URL = os.getenv("BASE_URL")
 AGENT_RECURSION_LIMIT = max(8, int(os.getenv("AGENT_RECURSION_LIMIT", "16")))
 
 
-def create_agent_instance(extra_tools: list | None = None):
+def create_agent_instance(tools: list | None = None ):
+
     model = init_chat_model(
         model=MODEL,
         model_provider="openai",
@@ -26,10 +26,14 @@ def create_agent_instance(extra_tools: list | None = None):
         stream_usage=True,
     )
 
-    tools = [get_current_weather, search_knowledge_base] + (extra_tools or [])
+    selected_tools = tools if tools is not None else [
+        get_current_weather,
+        search_knowledge_base,
+    ]
+
     agent = create_agent(
         model=model,
-        tools=tools,
+        tools=selected_tools,
         system_prompt=(
             "You are a helpful AI assistant named 知源.You were developed by Rudy."
             "Use search_knowledge_base when the user asks about uploaded documents, project knowledge, internal knowledge, or questions that require evidence grounding.For greetings, "
@@ -47,7 +51,8 @@ def create_agent_instance(extra_tools: list | None = None):
 agent, model = create_agent_instance()
 
 
-def get_agent():
+def get_agent(tools: list | None = None, extra_tools: list | None = None):
+    agent, _ = create_agent_instance(tools=tools, extra_tools=extra_tools)
     return agent
 
 
@@ -59,8 +64,4 @@ def get_recursion_limit() -> int:
     return AGENT_RECURSION_LIMIT
 
 
-def rebuild_agent_with_external_tools() -> list[str]:
-    global agent, model
-    extra_tools = get_enabled_mcp_tools()
-    agent, model = create_agent_instance(extra_tools=extra_tools)
-    return [getattr(item, "__name__", getattr(item, "name", "unknown")) for item in extra_tools]
+

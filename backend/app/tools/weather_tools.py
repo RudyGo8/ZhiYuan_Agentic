@@ -8,6 +8,7 @@ from typing import Optional
 import requests
 
 from dotenv import load_dotenv
+from app.tools.runtime import emit_rag_step
 
 load_dotenv()
 
@@ -74,6 +75,7 @@ def get_current_weather(location: str, extensions: Optional[str] = "base") -> st
         for city in candidates:
             if not city:
                 continue
+            emit_rag_step("🌈", "正在检索天气tool...",)
             current = _request_weather(city=city, extensions=extensions)
             if current.get("status") != "1":
                 last_info = current.get("info", "未知错误")

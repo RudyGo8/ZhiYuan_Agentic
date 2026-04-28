@@ -1,9 +1,6 @@
 from langchain_core.messages import SystemMessage
 
 from app.agent.factory import get_model
-from app.mcp.policy import set_turn_policy
-from app.mcp.trace import reset_mcp_trace
-from app.tools.runtime import get_last_rag_context, reset_tool_call_guards
 
 
 def summarize_old_messages(model, messages: list) -> str:
@@ -19,13 +16,6 @@ def summarize_old_messages(model, messages: list) -> str:
 
     summary = model.invoke(summary_prompt).content
     return summary
-
-
-def initialize_turn(plan) -> None:
-    set_turn_policy(plan.use_mcp, plan.mcp_sources, getattr(plan, "allowed_tools", None))
-    reset_mcp_trace()
-    get_last_rag_context(clear=True)
-    reset_tool_call_guards()
 
 
 def prepare_messages(messages: list) -> list:

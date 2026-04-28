@@ -18,7 +18,6 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
-from app.agent import rebuild_agent_with_external_tools
 from app.config import logger
 from app.database import init_db
 from app.mcp.client_manager import mcp_client_manager
@@ -37,8 +36,6 @@ FRONTEND_DIST_DIR = FRONTEND_DIR / "dist"
 async def lifespan(app: FastAPI):
     init_db()
     await mcp_client_manager.initialize()
-    enabled_tools = rebuild_agent_with_external_tools()
-    logger.info("Agent external toolset loaded: %s", enabled_tools)
     yield
 
 

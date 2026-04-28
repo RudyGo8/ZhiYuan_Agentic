@@ -1,30 +1,27 @@
 import asyncio
 import json
-
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
-
-from app.agent.context import initialize_turn, prepare_messages
-from app.agent.factory import get_agent, get_recursion_limit
+from app.agent.context import prepare_messages
+from app.agent.factory import get_agent, get_recursion_limit, create_agent_instance
 from app.agent.prompt import build_turn_prompt
 from app.agent.trace import collect_rag_trace, extract_usage_from_message
 from app.config import logger
-from app.mcp.policy import reset_turn_policy
+from app.mcp import mcp_client_manager
 from app.services.conversation_service import conversation_service as storage
-from app.services.intent_service import intent_service
-from app.services.planner_service import planner_service
-
-from app.agent.runtime_policy import build_runtime_policy
-from app.tools.runtime import set_rag_step_queue
+from app.tools.runtime import get_last_rag_context, reset_tool_call_guards, set_rag_step_queue
+from app.tools.registry import TOOL_REGISTRY
 
 
 async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", session_id: str = "default_session"):
+    get_last_rag_context(clear=True)
+    reset_tool_call_guards()
     messages = storage.load(user_id, session_id)
     messages = prepare_messages(messages)
-    intent = intent_service.classify(user_text)
-    execution_plan = planner_service.create_plan(user_text, intent)
-    runtime_policy = build_runtime_policy(execution_plan)
-    initialize_turn(runtime_policy)
 
+    local_tools = [spec.tool for spec in TOOL_REGISTRY.values()]
+    mcp_tools = await mcp_client_manager.get_agent_tools()
+    candidate_tools = local_tools + mcp_tools
+    agent, _ = create_agent_instance(tools=candidate_tools)
     output_queue = asyncio.Queue()
 
     class _RagStepProxy:
@@ -33,11 +30,8 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
 
     set_rag_step_queue(_RagStepProxy())
 
-    if getattr(runtime_policy, "use_mcp", False):
-        yield f"data: {json.dumps({'type': 'rag_step', 'step': {'icon': '⏳', 'label': '处理中', 'detail': '正在获取外部实时证据...'}})}\n\n"
-
-    build_prompt, prefetched_sources = build_turn_prompt(user_text, runtime_policy, user_id)
-    messages.append(HumanMessage(content=build_prompt))
+    build_prompt = build_turn_prompt(user_text, user_id)
+    agent_messages = [*messages, HumanMessage(content=build_prompt)]
 
     full_response = ""
     stream_usage = None
@@ -45,8 +39,8 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
     async def _agent_worker():
         nonlocal full_response, stream_usage
         try:
-            async for msg, _metadata in get_agent().astream(
-                    {"messages": messages},
+            async for msg, _metadata in agent.astream(
+                    {"messages": agent_messages},
                     stream_mode="messages",
                     config={"recursion_limit": get_recursion_limit()},
             ):
@@ -97,9 +91,8 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
         set_rag_step_queue(None)
         if not agent_task.done():
             agent_task.cancel()
-        reset_turn_policy()
 
-    rag_trace = collect_rag_trace(runtime_policy, stream_usage, prefetched_sources, intent, execution_plan)
+    rag_trace = collect_rag_trace(stream_usage)
 
     tool_used = bool(rag_trace.get("tool_used")) if isinstance(rag_trace, dict) else False
     tool_name = rag_trace.get("tool_name") if isinstance(rag_trace, dict) else None
@@ -117,6 +110,6 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
 
     yield "data: [DONE]\n\n"
 
-    messages.append(AIMessage(content=full_response))
-    extra_message_data = [None] * (len(messages) - 1) + [{"rag_trace": rag_trace}]
-    storage.save(user_id, session_id, messages, extra_message_data=extra_message_data)
+    persisted_messages = [*messages, HumanMessage(content=user_text), AIMessage(content=full_response)]
+    extra_message_data = [None] * (len(persisted_messages) - 1) + [{"rag_trace": rag_trace}]
+    storage.save(user_id, session_id, persisted_messages, extra_message_data=extra_message_data)

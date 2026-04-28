@@ -23,16 +23,6 @@ def _normalize_usage(usage: dict | None) -> dict | None:
     }
 
 
-def _to_dict(value):
-    if value is None:
-        return None
-    if hasattr(value, "model_dump"):
-        return value.model_dump()
-    if hasattr(value, "dict"):
-        return value.dict()
-    return value
-
-
 def extract_usage_from_message(msg) -> dict | None:
     if msg is None:
         return None
@@ -77,7 +67,7 @@ def _build_mcp_summary(mcp_calls: list[dict] | None) -> dict:
     }
 
 
-def collect_rag_trace(plan, usage: dict | None, prefetched_sources: list[str], intent=None, execution_plan=None) -> dict:
+def collect_rag_trace(usage: dict | None) -> dict:
     rag_context = get_last_rag_context(clear=True)
     rag_trace = rag_context.get("rag_trace") if rag_context else None
     if not isinstance(rag_trace, dict):
@@ -85,11 +75,7 @@ def collect_rag_trace(plan, usage: dict | None, prefetched_sources: list[str], i
 
     mcp_calls = get_mcp_trace(clear=True)
     rag_trace["token_usage"] = _estimate_cost(usage)
-    rag_trace["skill"] = plan.to_trace()
     rag_trace["mcp_calls"] = mcp_calls
     rag_trace["mcp_summary"] = _build_mcp_summary(mcp_calls)
-    rag_trace["mcp_prefetch_sources"] = prefetched_sources
     rag_trace["mcp_used"] = bool(mcp_calls)
-    rag_trace["intent"] = _to_dict(intent)
-    rag_trace["execution_plan"] = _to_dict(execution_plan)
     return rag_trace

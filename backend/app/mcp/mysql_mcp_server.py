@@ -12,11 +12,17 @@ import json
 import os
 import re
 from contextlib import closing
-
+from dotenv import load_dotenv
 import pymysql
 from mcp.server.fastmcp import FastMCP
 
+load_dotenv()
 mcp = FastMCP("mysql-stdio")
+
+# print(os.getenv("MYSQL_MCP_PORT"))
+# print(os.getenv("MYSQL_MCP_USERNAME"))
+# print(os.getenv("MYSQL_MCP_PASSWORD"))
+# print(os.getenv("MYSQL_MCP_DATABASE"))
 
 
 def _db_config() -> dict:
@@ -24,7 +30,7 @@ def _db_config() -> dict:
         "host": os.getenv("MYSQL_MCP_HOST", os.getenv("MYSQL_HOST", "127.0.0.1")),
         "port": int(os.getenv("MYSQL_MCP_PORT", os.getenv("MYSQL_PORT", "3306"))),
         "user": os.getenv("MYSQL_MCP_USERNAME", os.getenv("MYSQL_USERNAME", "root")),
-        "password": os.getenv("MYSQL_MCP_PASSWORD", os.getenv("MYSQL_PASSWORD", "")),
+        "password": os.getenv("MYSQL_MCP_PASSWORD", os.getenv("MYSQL_PASSWORD", "123456")),
         "database": os.getenv("MYSQL_MCP_DATABASE", os.getenv("MYSQL_DATABASE", "")),
         "charset": "utf8mb4",
         "cursorclass": pymysql.cursors.DictCursor,
@@ -90,14 +96,14 @@ def _is_column_intent(query: str) -> bool:
 
 @mcp.tool()
 def mysql_list_tables(query: str = "") -> str:
-    """List tables from the configured MySQL database (read-only)."""
+    """列出当前数据所有表."""
     tables = _list_tables()
     return "tables: " + ", ".join(tables[:200]) if tables else "tables: (empty)"
 
 
 @mcp.tool()
 def mysql_search_schema(query: str) -> str:
-    """Search table/column schema from MySQL (read-only)."""
+    """根据用户问题查询表结构、字段、列信息."""
     tables = _list_tables()
     if not tables:
         return "No tables found in current database."

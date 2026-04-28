@@ -17,11 +17,15 @@ async def main() -> None:
     print("mcp_sources:", mcp_client_manager.available_sources())
     print("agent_external_tools:", rebuild_agent_with_external_tools())
 
-    for source in ("db", "git"):
-        items = mcp_client_manager.query_source(source, "payment api latest status")
-        print(f"{source}_result_count:", len(items))
-        if items:
-            print(f"{source}_sample:", items[0]["summary"][:120])
+    git_items = mcp_client_manager.query_git("latest commits")
+    print("git_result_count:", len(git_items))
+    if git_items:
+        print("git_sample:", git_items[0]["summary"][:120])
+
+    items = mcp_client_manager.query_mysql("list mysql tables")
+    print("mysql_result_count:", len(items))
+    if items:
+        print("mysql_sample:", items[0]["summary"][:120])
 
 
 if __name__ == "__main__":
