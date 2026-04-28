@@ -16,14 +16,11 @@ from app.services.planner_service import planner_service
 from app.agent.runtime_policy import build_runtime_policy
 from app.tools.runtime import set_rag_step_queue
 
-from app.agent.plan_executor import execute_mcp_integration_plan
-
 
 async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", session_id: str = "default_session"):
     messages = storage.load(user_id, session_id)
     messages = prepare_messages(messages)
     intent = intent_service.classify(user_text)
-
     execution_plan = planner_service.create_plan(user_text, intent)
     runtime_policy = build_runtime_policy(execution_plan)
     initialize_turn(runtime_policy)
@@ -35,50 +32,6 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
             output_queue.put_nowait({"type": "rag_step", "step": step})
 
     set_rag_step_queue(_RagStepProxy())
-    if intent.intent == "mcp_integration":
-        try:
-            mcp_trace = await execute_mcp_integration_plan(
-                execution_plan,
-                user_text,
-            )
-
-            content = {
-                "title": "MCP 接入检查完成",
-                "message": "已执行 mcp_integration Skill 流程，当前为 dry-run 模式。",
-                "trace": mcp_trace,
-            }
-
-            full_response = json.dumps(content, ensure_ascii=False, indent=2)
-
-            yield f"data: {json.dumps({'type': 'trace', 'mcp_trace': mcp_trace}, ensure_ascii=False)}\n\n"
-            yield f"data: {json.dumps({'type': 'content', 'content': full_response}, ensure_ascii=False)}\n\n"
-            yield "data: [DONE]\n\n"
-
-            messages.append(HumanMessage(content=user_text))
-            messages.append(AIMessage(content=full_response))
-
-            extra_message_data = [None] * (len(messages) - 1) + [
-                {"mcp_trace": mcp_trace}
-            ]
-
-            storage.save(
-                user_id,
-                session_id,
-                messages,
-                extra_message_data=extra_message_data,
-            )
-
-            return
-
-        except Exception as e:
-            logger.exception("mcp_integration 执行失败")
-            yield f"data: {json.dumps({'type': 'error', 'content': str(e)}, ensure_ascii=False)}\n\n"
-            yield "data: [DONE]\n\n"
-            return
-
-        finally:
-            set_rag_step_queue(None)
-            reset_turn_policy()
 
     if getattr(runtime_policy, "use_mcp", False):
         yield f"data: {json.dumps({'type': 'rag_step', 'step': {'icon': '⏳', 'label': '处理中', 'detail': '正在获取外部实时证据...'}})}\n\n"

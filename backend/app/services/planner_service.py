@@ -34,19 +34,6 @@ class PlannerService:
                 ],
             )
 
-        if intent.intent == "mcp_integration":
-            return AgentPlan(
-                task_type="mcp_integration",
-                steps=[
-                    self._step("load_context", "load_context", reason="加载历史会话"),
-                    self._step("load_mcp_integration_skill", "skill_load", input= {"skill_name": "mcp_integration"}, reason="读取 mcp_integration Skill 文档，获取 MCP 接入流程和安全规则"),
-                    self._step("inspect_project_mcp", "tool_call", tool="project_file_reader", reason="读取项目中现有 MCP 配置、client_manager、config 和 pyproject 文件"),
-                    self._step("generate_mcp_config_suggestion","tool_call", tool="project_code_editor", reason="根据 Skill 流程生成 MCP Server 配置和注册建议"),
-                    self._step("validate_config","call_tool", tool="project_shell", input={"validate_command": "python -m compileall app"}, reason="运行基础校验，确认配置格式正确"),
-                    self._step("final_answer","final_answer", reason="输出 MCP 接入建议、配置说明和启动方式"),
-                ]
-            )
-
         if intent.intent == "rag_qa":
             return self._tool_plan("rag_qa", "search_knowledge_base", "检索知识库")
         if intent.intent == "realtime_query":
@@ -55,8 +42,6 @@ class PlannerService:
             return self._tool_plan("database_query", "database", "查询数据库")
         if intent.intent == "weather_query":
             return self._tool_plan("weather_query", "get_current_weather", "查询天气")
-
-
 
         return AgentPlan(
             task_type="unknown",
@@ -75,7 +60,6 @@ class PlannerService:
                 self._step(f"call_{tool}", "call_tool", tool=tool, reason=reason),
                 self._step("evaluate_result", "evaluate_result", reason="判断工具结果是否足够"),
                 self._step("final_answer", "final_answer", reason="生成最终回答"),
-
             ]
         )
 

@@ -6,19 +6,19 @@
 
 from app.tools.rag_tools import search_knowledge_base
 from app.tools.weather_tools import get_current_weather
-from app.tools.project_tools import (
-    ProjectFileReaderTool,
-    ProjectCodeEditorTool,
-    ProjectShellTool,
-)
+# from app.tools.project_tools import (
+#     ProjectFileReaderTool,
+#     ProjectCodeEditorTool,
+#     ProjectShellTool,
+# )
 
 TOOL_REGISTRY = {
     "search_knowledge_base": search_knowledge_base,
     "get_current_weather": get_current_weather,
 
-    "project_file_reader": ProjectFileReaderTool(),
-    "project_code_editor": ProjectCodeEditorTool(),
-    "project_shell": ProjectShellTool(),
+    # "project_file_reader": ProjectFileReaderTool(),
+    # "project_code_editor": ProjectCodeEditorTool(),
+    # "project_shell": ProjectShellTool(),
 }
 
 
